@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react';
-import { Button, Card, ErrorText, Field, Input, PageHeader, Select } from '../components/ui';
-import { api, ApiError, type Locale, type Settings } from '../lib/api';
+import { Button, Card, cx, ErrorText, Field, Input, PageHeader, Select } from '../components/ui';
+import { api, ApiError, type Locale, type Member, type Settings } from '../lib/api';
 import { useData } from '../lib/data';
 import { useT } from '../lib/i18n';
 
@@ -72,6 +72,7 @@ export function SettingsPage({ appName, version }: { appName: string; version: s
             <Button type="submit">{t('common.save')}</Button>
           </form>
         </Card>
+        <Members />
         <ChangePassword />
       </div>
       <p className="text-center text-xs text-slate-400">
@@ -124,6 +125,68 @@ function ChangePassword() {
           {t('settings.changePassword')}
         </Button>
       </form>
+    </Card>
+  );
+}
+
+const MEMBER_COLORS = ['#2563eb', '#db2777', '#16a34a', '#ea580c', '#9333ea', '#0891b2'];
+
+function Members() {
+  const { t } = useT();
+  const { members, reload } = useData();
+  const [name, setName] = useState('');
+  const [error, setError] = useState('');
+
+  async function run(action: () => Promise<unknown>) {
+    setError('');
+    try {
+      await action();
+      await reload();
+    } catch (err) {
+      setError(err instanceof ApiError && err.code === 'in_use' ? t('common.inUse') : t('common.error'));
+    }
+  }
+
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    await run(() => api.post('/members', { name, color: MEMBER_COLORS[members.length % MEMBER_COLORS.length] }));
+    setName('');
+  }
+
+  return (
+    <Card title={t('member.title')}>
+      <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">{t('member.help')}</p>
+      <ul className="mb-3 divide-y divide-slate-100 dark:divide-slate-800">
+        {members.map((m: Member) => (
+          <li key={m.id} className={cx('flex items-center gap-2 py-2 text-sm', m.archived && 'opacity-50')}>
+            <input
+              type="color"
+              value={m.color}
+              aria-label={t('category.color')}
+              onChange={(e) => run(() => api.put(`/members/${m.id}`, { color: e.target.value }))}
+              className="size-6 cursor-pointer rounded border-0 bg-transparent p-0"
+            />
+            <span className="flex-1">{m.name}</span>
+            <Button variant="ghost" className="!min-h-8 !px-2 text-xs" onClick={() => run(() => api.put(`/members/${m.id}`, { archived: !m.archived }))}>
+              {m.archived ? t('common.unarchive') : t('common.archive')}
+            </Button>
+            <Button
+              variant="ghost"
+              className="!min-h-8 !px-2 text-xs text-red-600"
+              onClick={() => confirm(t('common.confirmDelete')) && run(() => api.del(`/members/${m.id}`))}
+            >
+              {t('common.delete')}
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <form onSubmit={add} className="flex gap-2">
+        <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('common.name')} required maxLength={100} />
+        <Button type="submit" variant="secondary" className="shrink-0">
+          + {t('member.add')}
+        </Button>
+      </form>
+      <ErrorText>{error}</ErrorText>
     </Card>
   );
 }

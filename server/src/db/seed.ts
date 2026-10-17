@@ -36,6 +36,7 @@ const DEFAULT_CATEGORIES: CategorySeed[] = [
   { kind: 'expense', color: '#4f46e5', name: { tr: 'Eğitim', en: 'Education' } },
   { kind: 'expense', color: '#c026d3', name: { tr: 'Giyim', en: 'Clothing' } },
   { kind: 'expense', color: '#0284c7', name: { tr: 'Eğlence', en: 'Entertainment' } },
+  { kind: 'expense', color: '#7c3aed', name: { tr: 'Kredi taksitleri', en: 'Loan payments' } },
   { kind: 'expense', color: '#64748b', name: { tr: 'Diğer gider', en: 'Other expense' } },
 ];
 
