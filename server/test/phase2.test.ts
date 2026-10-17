@@ -176,3 +176,13 @@ describe('upcoming and members', () => {
     expect((await call('PUT', `/api/members/${ege.id}`, { archived: true })).body.archived).toBe(true);
   });
 });
+
+describe('upcoming card statements', () => {
+  it('drops a statement whose minimum was paid once its due date passes', async () => {
+    const bank = (await call('POST', '/api/accounts', { name: 'Banka', type: 'bank', currency: 'TRY', openingBalance: 100000 })).body;
+    const card = (await call('POST', '/api/accounts', { name: 'Kart', type: 'credit_card', currency: 'TRY' })).body;
+    const st = (await call('POST', '/api/card-statements', { accountId: card.id, statementDate: '2020-01-01', dueDate: '2020-01-11', amount: 5000, minimumPayment: 1000 })).body;
+    await call('POST', `/api/card-statements/${st.id}/pay`, { fromAccountId: bank.id, amount: 1000, date: '2020-01-10' });
+    expect((await call('GET', '/api/upcoming')).body.items).toHaveLength(0);
+  });
+});

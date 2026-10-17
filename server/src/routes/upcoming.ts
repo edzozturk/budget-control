@@ -51,7 +51,8 @@ export async function upcomingRoutes(app: FastifyInstance) {
 
     const open = statements
       .map((s) => statementStatus(s, today))
-      .filter((s) => s.remaining > 0 && s.dueDate <= until && cardById.has(s.accountId))
+      // Once the due date passes with the minimum paid, the rest rolls into the next statement.
+      .filter((s) => s.remaining > 0 && s.dueDate <= until && cardById.has(s.accountId) && !(s.status === 'minimum_paid' && s.dueDate < today))
       .map((s) => ({
         type: 'card' as const,
         id: s.id,
@@ -62,7 +63,7 @@ export async function upcomingRoutes(app: FastifyInstance) {
         minimumPayment: Math.max(0, s.minimumPayment - s.paidAmount),
         currency: cardById.get(s.accountId)!.currency,
         status: s.status,
-        overdue: s.dueDate < today,
+        overdue: s.status === 'overdue',
       }));
 
     // A card is missing a statement when its most recent cut-off day has passed with no statement on or after it.
