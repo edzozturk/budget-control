@@ -7,6 +7,7 @@ import { TRANSACTION_KINDS, transactions } from '../db/schema.js';
 import { HttpError, idParam, isoDate, notFound } from '../lib/http.js';
 import { getAccount } from './accounts.js';
 import { getCategory } from './categories.js';
+import { getMember } from './members.js';
 
 const positive = z.number().int().positive();
 
@@ -19,6 +20,7 @@ const transactionInput = z.object({
   toAccountId: z.string().uuid().nullish(),
   toAmount: positive.nullish(),
   note: z.string().max(1000).default(''),
+  memberId: z.string().uuid().nullish(),
 });
 
 type TransactionInput = z.infer<typeof transactionInput>;
@@ -29,6 +31,7 @@ const listQuery = z.object({
   accountId: z.string().uuid().optional(),
   categoryId: z.string().uuid().optional(),
   kind: z.enum(TRANSACTION_KINDS).optional(),
+  memberId: z.string().uuid().optional(),
   q: z.string().trim().max(100).optional(),
   limit: z.coerce.number().int().min(1).max(500).default(100),
   offset: z.coerce.number().int().min(0).default(0),
@@ -37,6 +40,8 @@ const listQuery = z.object({
 // Checks references belong to the workspace and the shape fits the kind.
 function normalize(db: Db, workspaceId: string, input: TransactionInput) {
   const account = getAccount(db, workspaceId, input.accountId);
+  if (input.memberId) getMember(db, workspaceId, input.memberId);
+  input = { ...input, memberId: input.memberId ?? null };
   if (input.kind === 'transfer') {
     if (!input.toAccountId) throw new HttpError(400, 'transfer_target_required');
     if (input.toAccountId === input.accountId) throw new HttpError(400, 'transfer_same_account');
@@ -76,6 +81,7 @@ export async function transactionRoutes(app: FastifyInstance) {
     if (q.accountId) filters.push(or(eq(transactions.accountId, q.accountId), eq(transactions.toAccountId, q.accountId)));
     if (q.categoryId) filters.push(eq(transactions.categoryId, q.categoryId));
     if (q.kind) filters.push(eq(transactions.kind, q.kind));
+    if (q.memberId) filters.push(eq(transactions.memberId, q.memberId));
     if (q.q) filters.push(like(transactions.note, `%${q.q.replace(/[%_]/g, '')}%`));
     const where = and(...filters);
 

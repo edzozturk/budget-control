@@ -1,5 +1,5 @@
 import { sql } from 'drizzle-orm';
-import { index, integer, primaryKey, sqliteTable, text } from 'drizzle-orm/sqlite-core';
+import { index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
 
 // Conventions (kept portable so the same model can move to PostgreSQL):
 // - ids are UUID strings
@@ -41,7 +41,8 @@ export const currencies = sqliteTable('currencies', {
   decimals: integer('decimals').notNull().default(2),
 });
 
-export const ACCOUNT_TYPES = ['bank', 'cash', 'credit_card', 'savings', 'other'] as const;
+// 'overdraft' is a bank overdraft account (KMH): its balance goes negative up to creditLimit.
+export const ACCOUNT_TYPES = ['bank', 'cash', 'credit_card', 'overdraft', 'savings', 'other'] as const;
 
 export const accounts = sqliteTable(
   'accounts',
@@ -57,6 +58,13 @@ export const accounts = sqliteTable(
       .references(() => currencies.code),
     openingBalance: integer('opening_balance').notNull().default(0),
     archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
+    // Credit cards and overdrafts: spending limit (minor units) and monthly interest rate (percent).
+    creditLimit: integer('credit_limit'),
+    interestRate: real('interest_rate'),
+    // Credit cards: statement cut-off day, payment due day, last four digits (never the full number).
+    statementDay: integer('statement_day'),
+    dueDay: integer('due_day'),
+    last4: text('last4'),
     ...timestamps,
   },
   (t) => [index('accounts_workspace_idx').on(t.workspaceId)],
@@ -101,6 +109,8 @@ export const transactions = sqliteTable(
     toAccountId: text('to_account_id').references(() => accounts.id),
     toAmount: integer('to_amount'),
     note: text('note').notNull().default(''),
+    // Family member the transaction belongs to (optional).
+    memberId: text('member_id').references(() => members.id),
     ...timestamps,
   },
   (t) => [
@@ -109,4 +119,86 @@ export const transactions = sqliteTable(
     index('transactions_to_account_idx').on(t.toAccountId),
     index('transactions_category_idx').on(t.categoryId),
   ],
+);
+
+export const members = sqliteTable(
+  'members',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    name: text('name').notNull(),
+    color: text('color').notNull().default('#64748b'),
+    archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
+    ...timestamps,
+  },
+  (t) => [index('members_workspace_idx').on(t.workspaceId)],
+);
+
+// A loan repaid in equal monthly installments. The schedule lives in loan_installments.
+export const loans = sqliteTable(
+  'loans',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    name: text('name').notNull(),
+    lender: text('lender').notNull().default(''),
+    currency: text('currency')
+      .notNull()
+      .references(() => currencies.code),
+    principal: integer('principal').notNull(),
+    installmentAmount: integer('installment_amount').notNull(),
+    installmentCount: integer('installment_count').notNull(),
+    firstDueDate: text('first_due_date').notNull(),
+    // Default account installments are paid from, and the expense category they are booked under.
+    accountId: text('account_id').references(() => accounts.id),
+    categoryId: text('category_id').references(() => categories.id),
+    memberId: text('member_id').references(() => members.id),
+    note: text('note').notNull().default(''),
+    ...timestamps,
+  },
+  (t) => [index('loans_workspace_idx').on(t.workspaceId)],
+);
+
+export const loanInstallments = sqliteTable(
+  'loan_installments',
+  {
+    id: text('id').primaryKey(),
+    loanId: text('loan_id')
+      .notNull()
+      .references(() => loans.id, { onDelete: 'cascade' }),
+    number: integer('number').notNull(),
+    dueDate: text('due_date').notNull(),
+    amount: integer('amount').notNull(),
+    // Set when paid; the payment is also recorded as an expense transaction.
+    paidDate: text('paid_date'),
+    transactionId: text('transaction_id').references(() => transactions.id, { onDelete: 'set null' }),
+  },
+  (t) => [uniqueIndex('loan_installments_loan_number_idx').on(t.loanId, t.number), index('loan_installments_due_idx').on(t.dueDate)],
+);
+
+// One credit card statement (ekstre): what is owed for a period and what has been paid.
+export const cardStatements = sqliteTable(
+  'card_statements',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    statementDate: text('statement_date').notNull(),
+    dueDate: text('due_date').notNull(),
+    amount: integer('amount').notNull(),
+    minimumPayment: integer('minimum_payment').notNull().default(0),
+    interest: integer('interest').notNull().default(0),
+    paidAmount: integer('paid_amount').notNull().default(0),
+    note: text('note').notNull().default(''),
+    ...timestamps,
+  },
+  (t) => [index('card_statements_account_idx').on(t.accountId, t.dueDate)],
 );
