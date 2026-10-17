@@ -4,6 +4,14 @@ Kişisel bütçe kontrol uygulaması: gelir/gider takibi, kategoriler, hesaplar 
 
 > Durum: 1. aşama (temel). Bütçe limitleri, tekrarlayan ödemeler, raporlar, dışa aktarma, yatırımlar ve forecast sonraki aşamalarda gelecek.
 
+## Windows'ta en kolay yol
+
+1. [Node.js 22 LTS](https://nodejs.org/) kur (bir kerelik, "Next" ile geçmen yeterli).
+2. GitHub'da **Code → Download ZIP** ile projeyi indir ve ZIP'i bir klasöre çıkar.
+3. Klasördeki **`baslat.bat`** dosyasına çift tıkla. İlk seferde kurulum birkaç dakika sürer, sonra tarayıcı kendiliğinden açılır.
+
+Sonraki seferlerde yine `baslat.bat`'a çift tıklaman yeterli. Kapatmak için siyah pencereyi kapat.
+
 ## Bilgisayara kurulum (Windows, Mac, Linux)
 
 1. [Node.js 22 LTS](https://nodejs.org/) kur (bir kerelik).
