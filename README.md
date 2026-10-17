@@ -4,13 +4,35 @@ Kişisel bütçe kontrol uygulaması: gelir/gider takibi, kategoriler, hesaplar 
 
 > Durum: 1. aşama (temel). Bütçe limitleri, tekrarlayan ödemeler, raporlar, dışa aktarma, yatırımlar ve forecast sonraki aşamalarda gelecek.
 
-## Windows'ta en kolay yol
+## Windows'ta kurulum (git ile)
 
-1. [Node.js 22 LTS](https://nodejs.org/) kur (bir kerelik, "Next" ile geçmen yeterli).
-2. GitHub'da **Code → Download ZIP** ile projeyi indir ve ZIP'i bir klasöre çıkar.
-3. Klasördeki **`baslat.bat`** dosyasına çift tıkla. İlk seferde kurulum birkaç dakika sürer, sonra tarayıcı kendiliğinden açılır.
+Bir kerelik hazırlık:
 
-Sonraki seferlerde yine `baslat.bat`'a çift tıklaman yeterli. Kapatmak için siyah pencereyi kapat.
+1. [Node.js 22 LTS](https://nodejs.org/) ve [Git for Windows](https://git-scm.com/download/win) kur ("Next" ile geçmen yeterli).
+2. Projeyi koymak istediğin klasörde sağ tık → **Open Git Bash here** (ya da bir terminal aç) ve çalıştır:
+
+   ```bash
+   git clone https://github.com/edzozturk/budget-control.git
+   ```
+
+   İlk seferde GitHub giriş penceresi açılır; depo özel olduğu için giriş yapman gerekir.
+3. `budget-control` klasöründeki **`baslat.bat`** dosyasına çift tıkla. İlk seferde kurulum birkaç dakika sürer, sonra tarayıcı kendiliğinden açılır.
+
+Verilerin `server\data` klasöründe durur. Git bu klasöre hiç dokunmaz; güncelleme ya da dal değiştirme verilerini silmez.
+
+### Güncelleme ve yeni özellikleri deneme
+
+Her yeni özellik ayrı bir dalda (branch) gelir. Denemek için `budget-control` klasöründe terminal açıp:
+
+```bash
+git fetch
+git checkout <dal-adı>     # örn. phase-2-loans-cards
+git pull
+```
+
+Sonra `baslat.bat`'a çift tıkla; kod değiştiyse kendisi yeniden derler. Ana sürüme dönmek için `git checkout main` ve `git pull`.
+
+Önemli: yeni bir dal veritabanını yeni sürüme yükseltir. Yükseltilmiş veritabanı eski sürümde açılmayabilir. Denemeden önce `server\data` klasörünün bir kopyasını almak iyi olur.
 
 ## Bilgisayara kurulum (Windows, Mac, Linux)
 
