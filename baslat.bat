@@ -12,14 +12,21 @@ if errorlevel 1 (
   exit /b 1
 )
 
-if not exist node_modules (
-  echo Ilk kurulum yapiliyor, birkac dakika surebilir...
-  call npm install || goto :error
-)
+rem Kod degistiyse (git pull sonrasi) bagimliliklari kurup yeniden derle.
+set CURRENT=
+for /f %%i in ('git rev-parse HEAD 2^>nul') do set CURRENT=%%i
+set BUILT=
+if exist .build-stamp set /p BUILT=<.build-stamp
+set REBUILD=
+if not exist node_modules set REBUILD=1
+if not exist server\dist\index.js set REBUILD=1
+if not "%CURRENT%"=="%BUILT%" set REBUILD=1
 
-if not exist server\dist\index.js (
-  echo Uygulama derleniyor...
+if defined REBUILD (
+  echo Kurulum ve derleme yapiliyor, birkac dakika surebilir...
+  call npm install --no-audit --no-fund || goto :error
   call npm run build || goto :error
+  if defined CURRENT (echo %CURRENT%>.build-stamp)
 )
 
 set PORT_VALUE=4310
