@@ -12,6 +12,7 @@ import { accountRoutes } from './routes/accounts.js';
 import { authRoutes } from './routes/auth.js';
 import { cardRoutes } from './routes/cards.js';
 import { categoryRoutes } from './routes/categories.js';
+import { importRoutes } from './routes/imports.js';
 import { loanRoutes } from './routes/loans.js';
 import { memberRoutes } from './routes/members.js';
 import { settingsRoutes } from './routes/settings.js';
@@ -78,6 +79,7 @@ export async function buildApp(config: Config, opts: { logger?: boolean } = {}) 
         await secured.register(categoryRoutes);
         await secured.register(transactionRoutes);
         await secured.register(summaryRoutes);
+        await secured.register(importRoutes);
         await secured.register(memberRoutes);
         await secured.register(loanRoutes);
         await secured.register(cardRoutes);

@@ -3,7 +3,7 @@ import { and, eq, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
-import { ACCOUNT_TYPES, accounts, currencies, transactions } from '../db/schema.js';
+import { ACCOUNT_TYPES, accounts, currencies, importLines, imports, transactions } from '../db/schema.js';
 import { currencyCode, HttpError, idParam, minorAmount, notFound } from '../lib/http.js';
 
 const accountInput = z.object({
@@ -113,7 +113,11 @@ export async function accountRoutes(app: FastifyInstance) {
       .where(or(eq(transactions.accountId, id), eq(transactions.toAccountId, id)))
       .get();
     if (used) throw new HttpError(409, 'in_use', 'Account has transactions; archive it instead');
-    vault.db.delete(accounts).where(eq(accounts.id, id)).run();
+    vault.db.transaction((tx) => {
+      tx.delete(importLines).where(eq(importLines.accountId, id)).run();
+      tx.delete(imports).where(eq(imports.accountId, id)).run();
+      tx.delete(accounts).where(eq(accounts.id, id)).run();
+    });
     reply.code(204);
   });
 }
