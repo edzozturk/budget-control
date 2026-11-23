@@ -7,12 +7,13 @@ import { Accounts } from './pages/Accounts';
 import { Cards } from './pages/Cards';
 import { Categories } from './pages/Categories';
 import { Dashboard } from './pages/Dashboard';
+import { Import } from './pages/Import';
 import { Loans } from './pages/Loans';
 import { LockScreen } from './pages/LockScreen';
 import { SettingsPage } from './pages/SettingsPage';
 import { Transactions } from './pages/Transactions';
 
-const PAGES = ['dashboard', 'transactions', 'loans', 'cards', 'accounts', 'categories', 'settings'] as const;
+const PAGES = ['dashboard', 'transactions', 'loans', 'cards', 'accounts', 'import', 'categories', 'settings'] as const;
 type Page = (typeof PAGES)[number];
 // The phone tab bar shows these; the rest sit behind "More".
 const MOBILE_TABS: Page[] = ['dashboard', 'transactions', 'loans', 'cards'];
@@ -22,6 +23,7 @@ const ICONS: Record<Page, string> = {
   transactions: 'M4 6h16M4 12h16M4 18h10',
   loans: 'M3 10 12 4l9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18',
   cards: 'M3 6h18v12H3zM3 10h18M7 15h4',
+  import: 'M12 3v12M7 10l5 5 5-5M4 17v3h16v-3',
   accounts: 'M4 7h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4zM4 7V6a2 2 0 0 1 2-2h10M16 13.5h.01',
   categories: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
   settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7.6 7.6 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7.6 7.6 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z',
@@ -147,6 +149,7 @@ function Shell({ status, onLock }: { status: Status; onLock: () => void }) {
           {page === 'transactions' && <Transactions />}
           {page === 'loans' && <Loans />}
           {page === 'cards' && <Cards />}
+          {page === 'import' && <Import />}
           {page === 'accounts' && <Accounts />}
           {page === 'categories' && <Categories />}
           {page === 'settings' && <SettingsPage appName={status.appName} version={status.version} />}
