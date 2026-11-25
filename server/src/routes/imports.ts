@@ -19,6 +19,7 @@ import {
 } from '../lib/statement.js';
 import { getAccount } from './accounts.js';
 import { getCategory } from './categories.js';
+import { getCostCenter } from './costCenters.js';
 import { getMember } from './members.js';
 
 const MAX_ROWS = 20000;
@@ -43,6 +44,7 @@ const commitInput = z.object({
         include: z.boolean(),
         categoryId: optionalId,
         memberId: optionalId,
+        costCenterId: optionalId,
         transferAccountId: optionalId,
         matchedTransactionId: optionalId,
       }),
@@ -54,20 +56,38 @@ const ruleInput = z.object({
   pattern: z.string().trim().min(2).max(200),
   categoryId: optionalId,
   memberId: optionalId,
+  costCenterId: optionalId,
   transferAccountId: optionalId,
 });
 
 type Rule = typeof categoryRules.$inferSelect;
 
+// Electricity, gas, water, phone and internet companies as they appear on Turkish statements.
+const UTILITY_PATTERNS = [
+  'ENERJISA', 'CK ENERJI', 'BOGAZICI ELEKTRIK', 'AYEDAS', 'BEDAS', 'TOROSLAR', 'GEDIZ ELEKTRIK', 'ULUDAG ELEKTRIK', 'OEDAS',
+  'IGDAS', 'BASKENTGAZ', 'IZMIRGAZ', 'ESGAZ', 'AKSA DOGALGAZ', 'DOGALGAZ',
+  'ISKI', 'ASKI', 'IZSU', 'BUSKI', 'SU IDARESI',
+  'TURK TELEKOM', 'TURKTELEKOM', 'TURKCELL', 'VODAFONE', 'SUPERONLINE', 'TTNET', 'MILLENICOM', 'DIGITURK', 'D-SMART',
+];
+
 function decimalsFor(db: Db, currency: string) {
   return db.select().from(currencies).where(eq(currencies.code, currency)).get()?.decimals ?? 2;
 }
 
+// A pattern matches at the start of a word ("aski" matches "ASKI GENEL" but not "BASKI").
+export function patternMatches(pattern: string, description: string) {
+  const needle = foldText(pattern).trim();
+  const text = foldText(description);
+  for (let i = text.indexOf(needle); i > -1; i = text.indexOf(needle, i + 1)) {
+    if (i === 0 || !/[a-z0-9]/.test(text[i - 1])) return true;
+  }
+  return false;
+}
+
 // The longest matching pattern wins, so "MIGROS SANAL" beats "MIGROS".
 export function matchRule(rules: Rule[], description: string) {
-  const text = foldText(description);
   return rules
-    .filter((r) => text.includes(foldText(r.pattern)))
+    .filter((r) => patternMatches(r.pattern, description))
     .sort((a, b) => b.pattern.length - a.pattern.length)[0];
 }
 
@@ -178,7 +198,7 @@ export async function importRoutes(app: FastifyInstance) {
     const result = keyed.map((l) => {
       const base = { ...l, status: 'new' as 'new' | 'duplicate' | 'matched', matchedTransactionId: null as string | null };
       const kind = l.amount < 0 ? 'expense' : 'income';
-      if (seen.has(l.key)) return { ...base, status: 'duplicate' as const, categoryId: null, memberId: null, transferAccountId: null, ruleId: null };
+      if (seen.has(l.key)) return { ...base, status: 'duplicate' as const, categoryId: null, memberId: null, costCenterId: null, transferAccountId: null, ruleId: null };
 
       const abs = Math.abs(l.amount);
       const match = candidates
@@ -192,7 +212,7 @@ export async function importRoutes(app: FastifyInstance) {
         .sort((a, b) => dayGap(a.date, l.date) - dayGap(b.date, l.date))[0];
       if (match) {
         used.add(match.id);
-        return { ...base, status: 'matched' as const, matchedTransactionId: match.id, categoryId: match.categoryId, memberId: match.memberId, transferAccountId: null, ruleId: null };
+        return { ...base, status: 'matched' as const, matchedTransactionId: match.id, categoryId: match.categoryId, memberId: match.memberId, costCenterId: match.costCenterId, transferAccountId: null, ruleId: null };
       }
 
       const rule = matchRule(rules, l.description);
@@ -203,7 +223,14 @@ export async function importRoutes(app: FastifyInstance) {
         : ruleCategory?.kind === kind
           ? ruleCategory.id
           : (history.get(`${kind}|${foldText(l.description)}`) ?? null);
-      return { ...base, categoryId, memberId: rule?.memberId ?? null, transferAccountId, ruleId: rule?.id ?? null };
+      return {
+        ...base,
+        categoryId,
+        memberId: rule?.memberId ?? null,
+        costCenterId: rule?.costCenterId ?? null,
+        transferAccountId,
+        ruleId: rule?.id ?? null,
+      };
     });
     return { lines: result, fromDate, toDate };
   });
@@ -215,6 +242,7 @@ export async function importRoutes(app: FastifyInstance) {
     for (const l of included) {
       if (l.categoryId) getCategory(vault.db, req.workspaceId, l.categoryId);
       if (l.memberId) getMember(vault.db, req.workspaceId, l.memberId);
+      if (l.costCenterId) getCostCenter(vault.db, req.workspaceId, l.costCenterId);
       if (l.transferAccountId) {
         const other = getAccount(vault.db, req.workspaceId, l.transferAccountId);
         if (other.id === account.id) throw new HttpError(400, 'transfer_same_account');
@@ -277,6 +305,7 @@ export async function importRoutes(app: FastifyInstance) {
               amount: abs,
               note: l.description,
               memberId: l.memberId ?? null,
+              costCenterId: l.costCenterId ?? null,
               importId: id,
               ...values,
             })
@@ -326,6 +355,7 @@ export async function importRoutes(app: FastifyInstance) {
   const checkRule = (workspaceId: string, body: Partial<z.infer<typeof ruleInput>>) => {
     if (body.categoryId) getCategory(vault.db, workspaceId, body.categoryId);
     if (body.memberId) getMember(vault.db, workspaceId, body.memberId);
+    if (body.costCenterId) getCostCenter(vault.db, workspaceId, body.costCenterId);
     if (body.transferAccountId) getAccount(vault.db, workspaceId, body.transferAccountId);
   };
   const getRule = (workspaceId: string, id: string) => {
@@ -344,7 +374,7 @@ export async function importRoutes(app: FastifyInstance) {
 
   app.post('/category-rules', async (req, reply) => {
     const body = ruleInput.parse(req.body);
-    if (!body.categoryId && !body.memberId && !body.transferAccountId) throw new HttpError(400, 'rule_empty');
+    if (!body.categoryId && !body.memberId && !body.costCenterId && !body.transferAccountId) throw new HttpError(400, 'rule_empty');
     checkRule(req.workspaceId, body);
     reply.code(201);
     return vault.db
@@ -374,6 +404,36 @@ export async function importRoutes(app: FastifyInstance) {
     reply.code(204);
   });
 
+  // Ready-made rules for Turkish utility companies, booked under the utilities category.
+  app.post('/category-rules/presets', async (req) => {
+    const existing = new Set(
+      vault.db
+        .select({ pattern: categoryRules.pattern })
+        .from(categoryRules)
+        .where(eq(categoryRules.workspaceId, req.workspaceId))
+        .all()
+        .map((r) => foldText(r.pattern)),
+    );
+    const expense = vault.db
+      .select()
+      .from(categories)
+      .where(and(eq(categories.workspaceId, req.workspaceId), eq(categories.kind, 'expense')))
+      .all();
+    let category = expense.find((c) => ['faturalar', 'utilities'].includes(foldText(c.name)));
+    if (!category) {
+      category = vault.db
+        .insert(categories)
+        .values({ id: randomUUID(), workspaceId: req.workspaceId, name: 'Faturalar', kind: 'expense', color: '#d97706' })
+        .returning()
+        .get();
+    }
+    const missing = UTILITY_PATTERNS.filter((p) => !existing.has(foldText(p)));
+    for (const pattern of missing) {
+      vault.db.insert(categoryRules).values({ id: randomUUID(), workspaceId: req.workspaceId, pattern, categoryId: category.id }).run();
+    }
+    return { added: missing.length };
+  });
+
   // Applies the rules to existing uncategorised transactions (e.g. after adding a rule).
   app.post('/category-rules/apply', async (req) => {
     const rules = vault.db.select().from(categoryRules).where(eq(categoryRules.workspaceId, req.workspaceId)).all();
@@ -390,7 +450,7 @@ export async function importRoutes(app: FastifyInstance) {
       .from(transactions)
       .where(and(eq(transactions.workspaceId, req.workspaceId), inArray(transactions.kind, ['income', 'expense'])))
       .all()
-      .filter((t) => !t.categoryId || !t.memberId);
+      .filter((t) => !t.categoryId || !t.memberId || !t.costCenterId);
     let updated = 0;
     vault.db.transaction((tx) => {
       for (const t of open) {
@@ -400,8 +460,9 @@ export async function importRoutes(app: FastifyInstance) {
         const patch = {
           categoryId: t.categoryId ?? (cat?.kind === t.kind ? cat.id : null),
           memberId: t.memberId ?? rule.memberId ?? null,
+          costCenterId: t.costCenterId ?? rule.costCenterId ?? null,
         };
-        if (patch.categoryId === t.categoryId && patch.memberId === t.memberId) continue;
+        if (patch.categoryId === t.categoryId && patch.memberId === t.memberId && patch.costCenterId === t.costCenterId) continue;
         tx.update(transactions).set(patch).where(eq(transactions.id, t.id)).run();
         updated++;
       }

@@ -5,7 +5,7 @@ import { api, ApiError, upload, type Cell, type ImportBatch, type ImportLine, ty
 import { useData, useResource } from '../lib/data';
 import { useT } from '../lib/i18n';
 import { formatDate } from '../lib/money';
-import { fold } from '../lib/text';
+import { patternMatches } from '../lib/text';
 
 interface Parsed {
   rows: Cell[][];
@@ -316,10 +316,9 @@ function LinesCard({
     try {
       await api.post('/category-rules', { pattern, categoryId: l.categoryId, memberId: l.memberId, transferAccountId: l.transferAccountId });
       // Apply the new rule to the other new lines in this preview.
-      const needle = fold(pattern);
       setLines(
         lines.map((x) =>
-          x.status === 'new' && fold(x.description).includes(needle) && Math.sign(x.amount) === Math.sign(l.amount)
+          x.status === 'new' && patternMatches(pattern, x.description) && Math.sign(x.amount) === Math.sign(l.amount)
             ? { ...x, categoryId: l.categoryId, memberId: l.memberId ?? x.memberId, transferAccountId: l.transferAccountId }
             : x,
         ),

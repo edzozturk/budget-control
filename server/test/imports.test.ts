@@ -190,3 +190,52 @@ describe('importing statements', () => {
     expect((await call('POST', '/api/category-rules', { pattern: 'xx' })).status).toBe(400);
   });
 });
+
+describe('cost centres, reports and utility rules', () => {
+  beforeEach(async () => {
+    dir = mkdtempSync(path.join(tmpdir(), 'budget-'));
+    cookie = '';
+    app = await buildApp(loadConfig({ DATA_DIR: dir, WEB_DIST: path.join(dir, 'no-web') }));
+    await call('POST', '/api/setup', { password: 'correct horse', locale: 'tr', baseCurrency: 'TRY' });
+  });
+
+  afterEach(async () => {
+    await app.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it('tags imported lines with a cost centre and reports them per month', async () => {
+    const bank = (await call('POST', '/api/accounts', { name: 'Banka', type: 'bank', currency: 'TRY' })).body;
+    const italy = (await call('POST', '/api/cost-centers', { name: 'İtalya evi' })).body;
+    const ege = (await call('POST', '/api/members', { name: 'Ege' })).body;
+    expect((await call('POST', '/api/category-rules', { pattern: 'EGE OZTURK', memberId: ege.id, costCenterId: italy.id })).status).toBe(201);
+    expect((await call('POST', '/api/category-rules/presets')).body.added).toBeGreaterThan(20);
+    expect((await call('POST', '/api/category-rules/presets')).body.added).toBe(0);
+
+    const rows = [
+      ['Tarih', 'Açıklama', 'Tutar'],
+      ['01.10.2026', 'EGE OZTURK HAVALE', '-30.000,00'],
+      ['02.11.2026', 'EGE OZTURK HAVALE', '-25.000,00'],
+      ['03.11.2026', 'ENERJISA ISTANBUL', '-1.250,00'],
+      ['04.11.2026', 'BASKI MERKEZI', '-100,00'],
+    ];
+    const mapping = { headerRow: 0, dateCol: 0, descriptionCols: [1], amountCol: 2, debitCol: null, creditCol: null, invert: false };
+    const preview = (await call('POST', '/api/imports/preview', { accountId: bank.id, rows, mapping })).body;
+    expect(preview.lines[0]).toMatchObject({ memberId: ege.id, costCenterId: italy.id });
+    expect(preview.lines[2].categoryId).not.toBeNull();
+    expect(preview.lines[3].categoryId).toBeNull(); // "ASKI" must not match "BASKI"
+    await call('POST', '/api/imports', { accountId: bank.id, mapping, lines: preview.lines.map((l: object) => ({ ...l, include: true })) });
+
+    expect((await call('GET', `/api/transactions?costCenterId=${italy.id}`)).body.total).toBe(2);
+    const report = (await call('GET', '/api/reports/breakdown?by=costCenter&from=2026-01-01&to=2026-12-31')).body;
+    const italyRows = report.rows.filter((r: { groupId: string }) => r.groupId === italy.id);
+    expect(italyRows.map((r: { month: string; total: number }) => [r.month, r.total])).toEqual([
+      ['2026-10', 3000000],
+      ['2026-11', 2500000],
+    ]);
+    const byMember = (await call('GET', '/api/reports/breakdown?by=member&from=2026-11-01&to=2026-11-30')).body;
+    expect(byMember.rows.find((r: { groupId: string }) => r.groupId === ege.id).total).toBe(2500000);
+
+    expect((await call('DELETE', `/api/cost-centers/${italy.id}`)).status).toBe(409);
+  });
+});
