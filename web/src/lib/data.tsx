@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
-import { api, type Account, type Category, type Currency, type Member, type Settings } from './api';
+import { api, type Account, type Category, type CostCenter, type Currency, type Member, type Settings } from './api';
 
 // Reference data most screens need, loaded once after unlock and refreshed on change.
 interface AppData {
@@ -8,6 +8,7 @@ interface AppData {
   accounts: Account[];
   categories: Category[];
   members: Member[];
+  costCenters: CostCenter[];
   reload: () => Promise<void>;
   setSettings: (s: Settings) => void;
 }
@@ -18,14 +19,15 @@ export function DataProvider({ children, fallback }: { children: ReactNode; fall
   const [state, setState] = useState<Omit<AppData, 'reload' | 'setSettings'> | null>(null);
 
   const reload = useCallback(async () => {
-    const [settings, currencies, accounts, categories, members] = await Promise.all([
+    const [settings, currencies, accounts, categories, members, costCenters] = await Promise.all([
       api.get<Settings>('/settings'),
       api.get<Currency[]>('/currencies'),
       api.get<Account[]>('/accounts'),
       api.get<Category[]>('/categories'),
       api.get<Member[]>('/members'),
+      api.get<CostCenter[]>('/cost-centers'),
     ]);
-    setState({ settings, currencies, accounts, categories, members });
+    setState({ settings, currencies, accounts, categories, members, costCenters });
   }, []);
 
   useEffect(() => {

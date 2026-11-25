@@ -64,6 +64,7 @@ export interface ImportLine {
   matchedTransactionId: string | null;
   categoryId: string | null;
   memberId: string | null;
+  costCenterId: string | null;
   transferAccountId: string | null;
   ruleId: string | null;
 }
@@ -84,8 +85,11 @@ export interface CategoryRule {
   pattern: string;
   categoryId: string | null;
   memberId: string | null;
+  costCenterId: string | null;
   transferAccountId: string | null;
 }
+
+export type CostCenter = Member;
 
 export interface Member {
   id: string;
@@ -185,6 +189,7 @@ export interface Transaction {
   toAmount: number | null;
   note: string;
   memberId: string | null;
+  costCenterId: string | null;
 }
 
 export interface Summary {
@@ -243,4 +248,13 @@ export const api = {
 export function query(params: Record<string, string | number | undefined>) {
   const entries = Object.entries(params).filter(([, v]) => v !== undefined && v !== '');
   return entries.length ? `?${new URLSearchParams(entries.map(([k, v]) => [k, String(v)]))}` : '';
+}
+
+export interface BreakdownRow {
+  groupId: string | null;
+  month: string;
+  categoryId: string | null;
+  currency: string;
+  kind: 'income' | 'expense';
+  total: number;
 }

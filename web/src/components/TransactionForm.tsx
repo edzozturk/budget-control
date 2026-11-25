@@ -4,11 +4,12 @@ import { useData } from '../lib/data';
 import { useT } from '../lib/i18n';
 import { decimalsOf, toInput, toMinor } from '../lib/money';
 import { today } from '../lib/period';
+import { TagSelect } from './TagSelect';
 import { Button, cx, ErrorText, Field, Input, Modal, Select } from './ui';
 
 export function TransactionForm({ initial, onClose, onSaved }: { initial?: Transaction; onClose: () => void; onSaved: () => void }) {
   const { t, locale } = useT();
-  const { accounts, categories, currencies, members, settings, reload } = useData();
+  const { accounts, categories, currencies, members, costCenters, settings, reload } = useData();
   // Accounts in the base currency come first, so the default account is the everyday one.
   const active = accounts
     .filter((a) => !a.archived || a.id === initial?.accountId || a.id === initial?.toAccountId)
@@ -27,6 +28,8 @@ export function TransactionForm({ initial, onClose, onSaved }: { initial?: Trans
   const [categoryId, setCategoryId] = useState(initial?.categoryId ?? '');
   const [note, setNote] = useState(initial?.note ?? '');
   const [memberId, setMemberId] = useState(initial?.memberId ?? '');
+  const [costCenterId, setCostCenterId] = useState(initial?.costCenterId ?? null);
+  const costCenterOptions = costCenters.filter((c) => !c.archived || c.id === initial?.costCenterId);
   const memberOptions = members.filter((m) => !m.archived || m.id === initial?.memberId);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
@@ -49,6 +52,7 @@ export function TransactionForm({ initial, onClose, onSaved }: { initial?: Trans
       amount: minor,
       note,
       memberId: memberId || null,
+      costCenterId,
       categoryId: kind === 'transfer' ? null : categoryId || null,
       toAccountId: kind === 'transfer' ? toAccountId : null,
       toAmount: kind === 'transfer' ? (crossCurrency ? toMinorAmount : minor) : null,
@@ -160,6 +164,11 @@ export function TransactionForm({ initial, onClose, onSaved }: { initial?: Trans
                 </option>
               ))}
             </Select>
+          </Field>
+        )}
+        {costCenterOptions.length > 0 && (
+          <Field label={t('costCenter.short')}>
+            <TagSelect label={t('costCenter.short')} items={costCenters} value={costCenterId} onChange={setCostCenterId} className="" />
           </Field>
         )}
         <Field label={t('tx.note')}>
