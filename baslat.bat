@@ -24,7 +24,8 @@ if not "%CURRENT%"=="%BUILT%" set REBUILD=1
 
 if defined REBUILD (
   echo Kurulum ve derleme yapiliyor, birkac dakika surebilir...
-  call npm install --no-audit --no-fund || goto :error
+  rem npm ci kurar ama package-lock.json'a dokunmaz; boylece git pull ve dal degistirme engellenmez.
+  call npm ci --no-audit --no-fund || goto :error
   call npm run build || goto :error
   if defined CURRENT (echo %CURRENT%>.build-stamp)
 )
