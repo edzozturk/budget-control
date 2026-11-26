@@ -65,6 +65,8 @@ export const accounts = sqliteTable(
     statementDay: integer('statement_day'),
     dueDay: integer('due_day'),
     last4: text('last4'),
+    // Column mapping remembered from the last statement import (JSON).
+    importMapping: text('import_mapping'),
     ...timestamps,
   },
   (t) => [index('accounts_workspace_idx').on(t.workspaceId)],
@@ -111,6 +113,8 @@ export const transactions = sqliteTable(
     note: text('note').notNull().default(''),
     // Family member the transaction belongs to (optional).
     memberId: text('member_id').references(() => members.id),
+    // The statement import that created the row, if any.
+    importId: text('import_id').references(() => imports.id, { onDelete: 'set null' }),
     ...timestamps,
   },
   (t) => [
@@ -201,4 +205,59 @@ export const cardStatements = sqliteTable(
     ...timestamps,
   },
   (t) => [index('card_statements_account_idx').on(t.accountId, t.dueDate)],
+);
+
+// One statement file imported into an account. Deleting it removes the transactions it created.
+export const imports = sqliteTable(
+  'imports',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    fileName: text('file_name').notNull(),
+    fromDate: text('from_date'),
+    toDate: text('to_date'),
+    createdCount: integer('created_count').notNull().default(0),
+    matchedCount: integer('matched_count').notNull().default(0),
+    ...timestamps,
+  },
+  (t) => [index('imports_account_idx').on(t.accountId)],
+);
+
+// Statement lines already seen on an account, so importing an overlapping statement again adds
+// nothing twice. A line points at the transaction it created or matched.
+export const importLines = sqliteTable(
+  'import_lines',
+  {
+    importId: text('import_id')
+      .notNull()
+      .references(() => imports.id, { onDelete: 'cascade' }),
+    accountId: text('account_id')
+      .notNull()
+      .references(() => accounts.id),
+    key: text('key').notNull(),
+    transactionId: text('transaction_id').references(() => transactions.id, { onDelete: 'set null' }),
+  },
+  (t) => [primaryKey({ columns: [t.accountId, t.key] }), index('import_lines_import_idx').on(t.importId)],
+);
+
+// Assigns a category, person or transfer account to imported lines whose description contains pattern.
+export const categoryRules = sqliteTable(
+  'category_rules',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    pattern: text('pattern').notNull(),
+    categoryId: text('category_id').references(() => categories.id, { onDelete: 'cascade' }),
+    memberId: text('member_id').references(() => members.id, { onDelete: 'set null' }),
+    transferAccountId: text('transfer_account_id').references(() => accounts.id, { onDelete: 'cascade' }),
+    ...timestamps,
+  },
+  (t) => [index('category_rules_workspace_idx').on(t.workspaceId)],
 );

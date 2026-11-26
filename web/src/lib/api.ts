@@ -42,6 +42,51 @@ export interface Account {
   last4: string | null;
 }
 
+export type Cell = string | number | null;
+
+export interface ImportMapping {
+  headerRow: number;
+  dateCol: number;
+  descriptionCols: number[];
+  amountCol: number | null;
+  debitCol: number | null;
+  creditCol: number | null;
+  invert: boolean;
+}
+
+export interface ImportLine {
+  row: number;
+  key: string;
+  date: string;
+  description: string;
+  amount: number;
+  status: 'new' | 'duplicate' | 'matched';
+  matchedTransactionId: string | null;
+  categoryId: string | null;
+  memberId: string | null;
+  transferAccountId: string | null;
+  ruleId: string | null;
+}
+
+export interface ImportBatch {
+  id: string;
+  accountId: string;
+  fileName: string;
+  fromDate: string | null;
+  toDate: string | null;
+  createdCount: number;
+  matchedCount: number;
+  createdAt: string;
+}
+
+export interface CategoryRule {
+  id: string;
+  pattern: string;
+  categoryId: string | null;
+  memberId: string | null;
+  transferAccountId: string | null;
+}
+
 export interface Member {
   id: string;
   name: string;
@@ -170,6 +215,16 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   if (res.status === 204) return undefined as T;
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    if (res.status === 401 && data.error === 'locked') window.dispatchEvent(new Event(LOCKED_EVENT));
+    throw new ApiError(res.status, data.error ?? 'error', data.message);
+  }
+  return data as T;
+}
+
+export async function upload<T>(url: string, file: Blob): Promise<T> {
+  const res = await fetch(`/api${url}`, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/octet-stream' }, body: file });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && data.error === 'locked') window.dispatchEvent(new Event(LOCKED_EVENT));

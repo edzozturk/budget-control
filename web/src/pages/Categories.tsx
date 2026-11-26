@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { Button, Card, cx, Dot, ErrorText, Field, Input, Modal, PageHeader, Select } from '../components/ui';
-import { api, ApiError, type Category, type CategoryKind } from '../lib/api';
-import { useData } from '../lib/data';
+import { api, ApiError, type Category, type CategoryKind, type CategoryRule } from '../lib/api';
+import { useData, useResource } from '../lib/data';
 import { useT } from '../lib/i18n';
 
 export function Categories() {
@@ -31,6 +31,7 @@ export function Categories() {
           </Card>
         ))}
       </div>
+      <Rules />
       {editing && (
         <CategoryForm
           initial={typeof editing === 'string' ? undefined : editing}
@@ -110,5 +111,109 @@ function CategoryForm({ initial, kind: initialKind, onClose }: { initial?: Categ
         </div>
       </form>
     </Modal>
+  );
+}
+
+function Rules() {
+  const { t } = useT();
+  const { accounts, categories, members } = useData();
+  const rules = useResource<CategoryRule[]>('/category-rules');
+  const [pattern, setPattern] = useState('');
+  const [target, setTarget] = useState('');
+  const [memberId, setMemberId] = useState('');
+  const [message, setMessage] = useState('');
+  const [error, setError] = useState('');
+
+  const describe = (r: CategoryRule) =>
+    [
+      r.categoryId && categories.find((c) => c.id === r.categoryId)?.name,
+      r.transferAccountId && t('import.transferTo', { name: accounts.find((a) => a.id === r.transferAccountId)?.name ?? '?' }),
+      r.memberId && members.find((m) => m.id === r.memberId)?.name,
+    ]
+      .filter(Boolean)
+      .join(' · ');
+
+  async function add(e: FormEvent) {
+    e.preventDefault();
+    setError('');
+    try {
+      await api.post('/category-rules', {
+        pattern,
+        categoryId: target.startsWith('cat:') ? target.slice(4) : null,
+        transferAccountId: target.startsWith('acc:') ? target.slice(4) : null,
+        memberId: memberId || null,
+      });
+      setPattern('');
+      rules.refresh();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('common.error'));
+    }
+  }
+
+  async function apply() {
+    const { updated } = await api.post<{ updated: number }>('/category-rules/apply');
+    setMessage(t('rules.applied', { n: updated }));
+  }
+
+  return (
+    <Card title={t('rules.title')} action={<Button variant="secondary" onClick={apply}>{t('rules.apply')}</Button>}>
+      <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">{t('rules.help')}</p>
+      {rules.data?.length === 0 && <p className="py-2 text-sm text-slate-500">{t('rules.none')}</p>}
+      <ul className="mb-3 divide-y divide-slate-100 text-sm dark:divide-slate-800">
+        {rules.data?.map((r) => (
+          <li key={r.id} className="flex items-center gap-3 py-2">
+            <span className="min-w-0 flex-1">
+              <span className="font-medium">“{r.pattern}”</span>
+              <span className="text-slate-500"> → {describe(r)}</span>
+            </span>
+            <Button
+              variant="ghost"
+              className="!min-h-8 !px-2 text-xs text-red-600"
+              onClick={async () => {
+                await api.del(`/category-rules/${r.id}`);
+                rules.refresh();
+              }}
+            >
+              {t('common.delete')}
+            </Button>
+          </li>
+        ))}
+      </ul>
+      <form onSubmit={add} className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+        <Input value={pattern} onChange={(e) => setPattern(e.target.value)} placeholder={t('rules.pattern')} required minLength={2} maxLength={200} />
+        <Select value={target} onChange={(e) => setTarget(e.target.value)}>
+          <option value="">{t('rules.target')}…</option>
+          {categories
+            .filter((c) => !c.archived)
+            .map((c) => (
+              <option key={c.id} value={`cat:${c.id}`}>
+                {t(`kind.${c.kind}`)}: {c.name}
+              </option>
+            ))}
+          {accounts
+            .filter((a) => !a.archived)
+            .map((a) => (
+              <option key={a.id} value={`acc:${a.id}`}>
+                {t('import.transferTo', { name: a.name })}
+              </option>
+            ))}
+        </Select>
+        <Select value={memberId} onChange={(e) => setMemberId(e.target.value)}>
+          <option value="">{t('common.member')}: {t('common.none')}</option>
+          {members
+            .filter((m) => !m.archived)
+            .map((m) => (
+              <option key={m.id} value={m.id}>
+                {m.name}
+              </option>
+            ))}
+        </Select>
+        <Button type="submit" variant="secondary" disabled={!target && !memberId}>
+          + {t('rules.add')}
+        </Button>
+      </form>
+      {message && <p className="mt-2 text-sm text-emerald-700 dark:text-emerald-400">{message}</p>}
+      <ErrorText>{error}</ErrorText>
+    </Card>
   );
 }

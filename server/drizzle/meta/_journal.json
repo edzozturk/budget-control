@@ -15,6 +15,13 @@
       "when": 1792251994574,
       "tag": "0001_loans_cards_members",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1795440899994,
+      "tag": "0002_statement_imports",
+      "breakpoints": true
     }
   ]
 }
