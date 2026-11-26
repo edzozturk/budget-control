@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { TagSelect } from '../components/TagSelect';
 import { Button, Card, cx, Dot, ErrorText, Field, Input, Modal, PageHeader, Select } from '../components/ui';
 import { api, ApiError, type Category, type CategoryKind, type CategoryRule } from '../lib/api';
 import { useData, useResource } from '../lib/data';
@@ -116,11 +117,12 @@ function CategoryForm({ initial, kind: initialKind, onClose }: { initial?: Categ
 
 function Rules() {
   const { t } = useT();
-  const { accounts, categories, members } = useData();
+  const { accounts, categories, members, costCenters, reload } = useData();
   const rules = useResource<CategoryRule[]>('/category-rules');
   const [pattern, setPattern] = useState('');
   const [target, setTarget] = useState('');
   const [memberId, setMemberId] = useState('');
+  const [costCenterId, setCostCenterId] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
@@ -129,6 +131,7 @@ function Rules() {
       r.categoryId && categories.find((c) => c.id === r.categoryId)?.name,
       r.transferAccountId && t('import.transferTo', { name: accounts.find((a) => a.id === r.transferAccountId)?.name ?? '?' }),
       r.memberId && members.find((m) => m.id === r.memberId)?.name,
+      r.costCenterId && costCenters.find((c) => c.id === r.costCenterId)?.name,
     ]
       .filter(Boolean)
       .join(' · ');
@@ -142,6 +145,7 @@ function Rules() {
         categoryId: target.startsWith('cat:') ? target.slice(4) : null,
         transferAccountId: target.startsWith('acc:') ? target.slice(4) : null,
         memberId: memberId || null,
+        costCenterId,
       });
       setPattern('');
       rules.refresh();
@@ -150,14 +154,29 @@ function Rules() {
     }
   }
 
+  async function presets() {
+    const { added } = await api.post<{ added: number }>('/category-rules/presets');
+    setMessage(t('rules.presetsAdded', { n: added }));
+    rules.refresh();
+    await reload();
+  }
+
   async function apply() {
     const { updated } = await api.post<{ updated: number }>('/category-rules/apply');
     setMessage(t('rules.applied', { n: updated }));
   }
 
   return (
-    <Card title={t('rules.title')} action={<Button variant="secondary" onClick={apply}>{t('rules.apply')}</Button>}>
+    <Card title={t('rules.title')}>
       <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">{t('rules.help')}</p>
+      <div className="mb-3 flex flex-wrap gap-2">
+        <Button variant="secondary" className="!min-h-8 text-xs" onClick={presets}>
+          {t('rules.presets')}
+        </Button>
+        <Button variant="secondary" className="!min-h-8 text-xs" onClick={apply}>
+          {t('rules.apply')}
+        </Button>
+      </div>
       {rules.data?.length === 0 && <p className="py-2 text-sm text-slate-500">{t('rules.none')}</p>}
       <ul className="mb-3 divide-y divide-slate-100 text-sm dark:divide-slate-800">
         {rules.data?.map((r) => (
@@ -179,7 +198,7 @@ function Rules() {
           </li>
         ))}
       </ul>
-      <form onSubmit={add} className="grid gap-2 sm:grid-cols-[1fr_1fr_1fr_auto]">
+      <form onSubmit={add} className="grid gap-2 sm:grid-cols-2 lg:grid-cols-[1fr_1fr_1fr_1fr_auto]">
         <Input value={pattern} onChange={(e) => setPattern(e.target.value)} placeholder={t('rules.pattern')} required minLength={2} maxLength={200} />
         <Select value={target} onChange={(e) => setTarget(e.target.value)}>
           <option value="">{t('rules.target')}…</option>
@@ -208,7 +227,8 @@ function Rules() {
               </option>
             ))}
         </Select>
-        <Button type="submit" variant="secondary" disabled={!target && !memberId}>
+        <TagSelect label={t('costCenter.short')} items={costCenters} value={costCenterId} onChange={setCostCenterId} className="" />
+        <Button type="submit" variant="secondary" disabled={!target && !memberId && !costCenterId}>
           + {t('rules.add')}
         </Button>
       </form>

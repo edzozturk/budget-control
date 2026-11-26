@@ -1,11 +1,12 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { Money } from '../components/Money';
+import { TagSelect } from '../components/TagSelect';
 import { Button, Card, cx, Empty, ErrorText, Field, Input, PageHeader, Select } from '../components/ui';
 import { api, ApiError, upload, type Cell, type ImportBatch, type ImportLine, type ImportMapping } from '../lib/api';
 import { useData, useResource } from '../lib/data';
 import { useT } from '../lib/i18n';
 import { formatDate } from '../lib/money';
-import { fold } from '../lib/text';
+import { patternMatches } from '../lib/text';
 
 interface Parsed {
   rows: Cell[][];
@@ -288,7 +289,7 @@ function LinesCard({
   busy: boolean;
 }) {
   const { t, locale } = useT();
-  const { accounts, categories, members } = useData();
+  const { accounts, categories, members, costCenters } = useData();
   const account = accounts.find((a) => a.id === accountId)!;
   const [filter, setFilter] = useState<'all' | 'uncategorized'>('all');
   const [error, setError] = useState('');
@@ -314,13 +315,12 @@ function LinesCard({
     if (!pattern?.trim()) return;
     setError('');
     try {
-      await api.post('/category-rules', { pattern, categoryId: l.categoryId, memberId: l.memberId, transferAccountId: l.transferAccountId });
+      await api.post('/category-rules', { pattern, categoryId: l.categoryId, memberId: l.memberId, costCenterId: l.costCenterId, transferAccountId: l.transferAccountId });
       // Apply the new rule to the other new lines in this preview.
-      const needle = fold(pattern);
       setLines(
         lines.map((x) =>
-          x.status === 'new' && fold(x.description).includes(needle) && Math.sign(x.amount) === Math.sign(l.amount)
-            ? { ...x, categoryId: l.categoryId, memberId: l.memberId ?? x.memberId, transferAccountId: l.transferAccountId }
+          x.status === 'new' && patternMatches(pattern, x.description) && Math.sign(x.amount) === Math.sign(l.amount)
+            ? { ...x, categoryId: l.categoryId, memberId: l.memberId ?? x.memberId, costCenterId: l.costCenterId ?? x.costCenterId, transferAccountId: l.transferAccountId }
             : x,
         ),
       );
@@ -367,8 +367,8 @@ function LinesCard({
                       <Money amount={l.amount} currency={account.currency} signed className="shrink-0 text-sm font-semibold" />
                     </div>
                     {l.status === 'new' && (
-                      <div className="mt-2 grid grid-cols-[1fr_auto] gap-2 sm:grid-cols-[2fr_1fr_auto]">
-                        <Select value={targetValue(l)} onChange={(e) => setTarget(l, e.target.value)} className="!min-h-9">
+                      <div className="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-[2fr_1fr_1fr_auto]">
+                        <Select value={targetValue(l)} onChange={(e) => setTarget(l, e.target.value)} className="!min-h-9 max-sm:col-span-2">
                           <option value="">{t('dashboard.uncategorized')}</option>
                           {categories
                             .filter((c) => c.kind === kind && !c.archived)
@@ -383,22 +383,12 @@ function LinesCard({
                             </option>
                           ))}
                         </Select>
-                        {members.length > 0 && (
-                          <Select value={l.memberId ?? ''} onChange={(e) => update(l.key, { memberId: e.target.value || null })} className="!min-h-9 max-sm:col-span-2 max-sm:row-start-2">
-                            <option value="">{t('common.member')}: {t('common.none')}</option>
-                            {members
-                              .filter((m) => !m.archived)
-                              .map((m) => (
-                                <option key={m.id} value={m.id}>
-                                  {m.name}
-                                </option>
-                              ))}
-                          </Select>
-                        )}
+                        <TagSelect label={t('common.member')} items={members} value={l.memberId} onChange={(memberId) => update(l.key, { memberId })} />
+                        <TagSelect label={t('costCenter.short')} items={costCenters} value={l.costCenterId} onChange={(costCenterId) => update(l.key, { costCenterId })} />
                         <Button
                           variant="ghost"
-                          className="!min-h-9 !px-2 text-xs"
-                          disabled={!l.categoryId && !l.memberId && !l.transferAccountId}
+                          className="!min-h-9 !px-2 text-xs max-sm:col-span-2 max-sm:justify-self-end"
+                          disabled={!l.categoryId && !l.memberId && !l.costCenterId && !l.transferAccountId}
                           onClick={() => makeRule(l)}
                         >
                           {t('import.makeRule')}

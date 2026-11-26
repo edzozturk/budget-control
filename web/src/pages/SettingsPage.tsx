@@ -73,6 +73,7 @@ export function SettingsPage({ appName, version }: { appName: string; version: s
           </form>
         </Card>
         <Members />
+        <CostCenters />
         <ChangePassword />
       </div>
       <p className="text-center text-xs text-slate-400">
@@ -133,7 +134,22 @@ const MEMBER_COLORS = ['#2563eb', '#db2777', '#16a34a', '#ea580c', '#9333ea', '#
 
 function Members() {
   const { t } = useT();
-  const { members, reload } = useData();
+  const { members } = useData();
+  return <NamedList endpoint="/members" items={members} title={t('member.title')} help={t('member.help')} addLabel={t('member.add')} />;
+}
+
+function CostCenters() {
+  const { t } = useT();
+  const { costCenters } = useData();
+  return (
+    <NamedList endpoint="/cost-centers" items={costCenters} title={t('costCenter.title')} help={t('costCenter.help')} addLabel={t('costCenter.add')} />
+  );
+}
+
+// An editable list of named, coloured tags (family members, cost centres).
+function NamedList({ endpoint, items, title, help, addLabel }: { endpoint: string; items: Member[]; title: string; help: string; addLabel: string }) {
+  const { t } = useT();
+  const { reload } = useData();
   const [name, setName] = useState('');
   const [error, setError] = useState('');
 
@@ -149,31 +165,31 @@ function Members() {
 
   async function add(e: FormEvent) {
     e.preventDefault();
-    await run(() => api.post('/members', { name, color: MEMBER_COLORS[members.length % MEMBER_COLORS.length] }));
+    await run(() => api.post(endpoint, { name, color: MEMBER_COLORS[items.length % MEMBER_COLORS.length] }));
     setName('');
   }
 
   return (
-    <Card title={t('member.title')}>
-      <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">{t('member.help')}</p>
+    <Card title={title}>
+      <p className="mb-3 text-xs text-slate-500 dark:text-slate-400">{help}</p>
       <ul className="mb-3 divide-y divide-slate-100 dark:divide-slate-800">
-        {members.map((m: Member) => (
+        {items.map((m) => (
           <li key={m.id} className={cx('flex items-center gap-2 py-2 text-sm', m.archived && 'opacity-50')}>
             <input
               type="color"
               value={m.color}
               aria-label={t('category.color')}
-              onChange={(e) => run(() => api.put(`/members/${m.id}`, { color: e.target.value }))}
+              onChange={(e) => run(() => api.put(`${endpoint}/${m.id}`, { color: e.target.value }))}
               className="size-6 cursor-pointer rounded border-0 bg-transparent p-0"
             />
             <span className="flex-1">{m.name}</span>
-            <Button variant="ghost" className="!min-h-8 !px-2 text-xs" onClick={() => run(() => api.put(`/members/${m.id}`, { archived: !m.archived }))}>
+            <Button variant="ghost" className="!min-h-8 !px-2 text-xs" onClick={() => run(() => api.put(`${endpoint}/${m.id}`, { archived: !m.archived }))}>
               {m.archived ? t('common.unarchive') : t('common.archive')}
             </Button>
             <Button
               variant="ghost"
               className="!min-h-8 !px-2 text-xs text-red-600"
-              onClick={() => confirm(t('common.confirmDelete')) && run(() => api.del(`/members/${m.id}`))}
+              onClick={() => confirm(t('common.confirmDelete')) && run(() => api.del(`${endpoint}/${m.id}`))}
             >
               {t('common.delete')}
             </Button>
@@ -183,7 +199,7 @@ function Members() {
       <form onSubmit={add} className="flex gap-2">
         <Input value={name} onChange={(e) => setName(e.target.value)} placeholder={t('common.name')} required maxLength={100} />
         <Button type="submit" variant="secondary" className="shrink-0">
-          + {t('member.add')}
+          + {addLabel}
         </Button>
       </form>
       <ErrorText>{error}</ErrorText>

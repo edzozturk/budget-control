@@ -113,6 +113,8 @@ export const transactions = sqliteTable(
     note: text('note').notNull().default(''),
     // Family member the transaction belongs to (optional).
     memberId: text('member_id').references(() => members.id),
+    // Cost centre (e.g. a second home) the transaction is reported under (optional).
+    costCenterId: text('cost_center_id').references(() => costCenters.id),
     // The statement import that created the row, if any.
     importId: text('import_id').references(() => imports.id, { onDelete: 'set null' }),
     ...timestamps,
@@ -123,6 +125,22 @@ export const transactions = sqliteTable(
     index('transactions_to_account_idx').on(t.toAccountId),
     index('transactions_category_idx').on(t.categoryId),
   ],
+);
+
+// A separately reported group of income and expenses, such as a house abroad.
+export const costCenters = sqliteTable(
+  'cost_centers',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    name: text('name').notNull(),
+    color: text('color').notNull().default('#64748b'),
+    archived: integer('archived', { mode: 'boolean' }).notNull().default(false),
+    ...timestamps,
+  },
+  (t) => [index('cost_centers_workspace_idx').on(t.workspaceId)],
 );
 
 export const members = sqliteTable(
@@ -256,6 +274,7 @@ export const categoryRules = sqliteTable(
     pattern: text('pattern').notNull(),
     categoryId: text('category_id').references(() => categories.id, { onDelete: 'cascade' }),
     memberId: text('member_id').references(() => members.id, { onDelete: 'set null' }),
+    costCenterId: text('cost_center_id').references(() => costCenters.id, { onDelete: 'set null' }),
     transferAccountId: text('transfer_account_id').references(() => accounts.id, { onDelete: 'cascade' }),
     ...timestamps,
   },
