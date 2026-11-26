@@ -8,7 +8,7 @@ import { Button, cx, ErrorText, Field, Input, Modal, Select } from './ui';
 
 export function TransactionForm({ initial, onClose, onSaved }: { initial?: Transaction; onClose: () => void; onSaved: () => void }) {
   const { t, locale } = useT();
-  const { accounts, categories, currencies, settings, reload } = useData();
+  const { accounts, categories, currencies, members, settings, reload } = useData();
   // Accounts in the base currency come first, so the default account is the everyday one.
   const active = accounts
     .filter((a) => !a.archived || a.id === initial?.accountId || a.id === initial?.toAccountId)
@@ -26,6 +26,8 @@ export function TransactionForm({ initial, onClose, onSaved }: { initial?: Trans
   const [toAmount, setToAmount] = useState(initial?.toAmount != null ? toInput(initial.toAmount, toDec, locale) : '');
   const [categoryId, setCategoryId] = useState(initial?.categoryId ?? '');
   const [note, setNote] = useState(initial?.note ?? '');
+  const [memberId, setMemberId] = useState(initial?.memberId ?? '');
+  const memberOptions = members.filter((m) => !m.archived || m.id === initial?.memberId);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
 
@@ -46,6 +48,7 @@ export function TransactionForm({ initial, onClose, onSaved }: { initial?: Trans
       accountId,
       amount: minor,
       note,
+      memberId: memberId || null,
       categoryId: kind === 'transfer' ? null : categoryId || null,
       toAccountId: kind === 'transfer' ? toAccountId : null,
       toAmount: kind === 'transfer' ? (crossCurrency ? toMinorAmount : minor) : null,
@@ -142,6 +145,18 @@ export function TransactionForm({ initial, onClose, onSaved }: { initial?: Trans
               {kindCategories.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name}
+                </option>
+              ))}
+            </Select>
+          </Field>
+        )}
+        {memberOptions.length > 0 && (
+          <Field label={t('common.member')}>
+            <Select value={memberId} onChange={(e) => setMemberId(e.target.value)}>
+              <option value="">{t('common.none')}</option>
+              {memberOptions.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.name}
                 </option>
               ))}
             </Select>

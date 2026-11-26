@@ -3,10 +3,12 @@ import { Money } from '../components/Money';
 import { PeriodPicker } from '../components/PeriodPicker';
 import { TransactionForm } from '../components/TransactionForm';
 import { TransactionRow } from '../components/TransactionRow';
-import { Button, Card, Dot, Empty, PageHeader } from '../components/ui';
-import { query, type Summary, type Transaction } from '../lib/api';
+import { Button, Card, cx, Dot, Empty, ErrorText, PageHeader } from '../components/ui';
+import { api, ApiError, query, type CardStatement, type Summary, type Transaction, type Upcoming } from '../lib/api';
 import { useData, useResource } from '../lib/data';
 import { useT } from '../lib/i18n';
+import { formatDate } from '../lib/money';
+import { PayStatement, StatusBadge } from './Cards';
 import { currentPeriod, shiftPeriod } from '../lib/period';
 
 export function Dashboard({ navigate }: { navigate: (page: string) => void }) {
@@ -17,9 +19,12 @@ export function Dashboard({ navigate }: { navigate: (page: string) => void }) {
   const summary = useResource<Summary>(`/summary${query({ from: period.from, to: period.to })}`);
   const recent = useResource<{ items: Transaction[] }>(`/transactions${query({ from: period.from, to: period.to, limit: 8 })}`);
 
+  const upcoming = useResource<Upcoming>('/upcoming?days=45');
+
   const refresh = () => {
     summary.refresh();
     recent.refresh();
+    upcoming.refresh();
   };
 
   const totals = summary.data?.totals ?? {};
@@ -50,6 +55,8 @@ export function Dashboard({ navigate }: { navigate: (page: string) => void }) {
           </div>
         );
       })}
+
+      {upcoming.data && <UpcomingCard data={upcoming.data} navigate={navigate} onChanged={refresh} />}
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title={t('dashboard.accounts')} action={<Button variant="ghost" onClick={() => navigate('accounts')}>›</Button>}>
@@ -123,5 +130,95 @@ export function Dashboard({ navigate }: { navigate: (page: string) => void }) {
         />
       )}
     </div>
+  );
+}
+
+function UpcomingCard({ data, navigate, onChanged }: { data: Upcoming; navigate: (page: string) => void; onChanged: () => void }) {
+  const { t, locale } = useT();
+  const { reload } = useData();
+  const [paying, setPaying] = useState<CardStatement | null>(null);
+  const [error, setError] = useState('');
+
+  async function payLoan(loanId: string, number: number) {
+    setError('');
+    try {
+      await api.post(`/loans/${loanId}/installments/${number}/pay`, {});
+      await reload();
+      onChanged();
+    } catch (err) {
+      // Without a default paying account the installment is paid from the loan screen.
+      if (err instanceof ApiError && err.code === 'account_required') navigate('loans');
+      else setError(err instanceof ApiError ? err.message : t('common.error'));
+    }
+  }
+
+  async function payCard(id: string) {
+    const statements = await api.get<CardStatement[]>('/card-statements');
+    setPaying(statements.find((s) => s.id === id) ?? null);
+  }
+
+  return (
+    <Card title={t('upcoming.title')}>
+      {data.missingStatements.map((m) => (
+        <button
+          key={m.id}
+          onClick={() => navigate('cards')}
+          className="mb-2 block w-full rounded-lg bg-amber-50 px-3 py-2 text-left text-sm text-amber-900 dark:bg-amber-900/30 dark:text-amber-200"
+        >
+          ⚠ {t('upcoming.missing', { name: m.name, date: formatDate(m.statementDate, locale) })}
+        </button>
+      ))}
+      {data.items.length === 0 ? (
+        <Empty>{t('upcoming.none')}</Empty>
+      ) : (
+        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+          {data.items.map((item) => (
+            <li key={`${item.type}-${item.id}`} className="flex items-center gap-3 py-2 text-sm">
+              <span className="w-5 text-center" aria-hidden>
+                {item.type === 'loan' ? '🏦' : '💳'}
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">
+                  {item.name}
+                  {item.type === 'loan' && <span className="font-normal text-slate-500"> {item.number}/{item.count}</span>}
+                </span>
+                <span className={cx('block text-xs', item.overdue ? 'font-medium text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400')}>
+                  {item.overdue ? `${t('common.overdue')} · ` : ''}
+                  {formatDate(item.dueDate, locale)}
+                  {item.type === 'card' && item.minimumPayment > 0 && item.status !== 'minimum_paid' ? (
+                    <>
+                      {' · '}
+                      {t('upcoming.minimum')} <Money amount={item.minimumPayment} currency={item.currency} />
+                    </>
+                  ) : null}
+                </span>
+              </span>
+              <span className="text-right">
+                <Money amount={item.amount} currency={item.currency} className="block font-semibold" />
+                {item.type === 'card' && item.status === 'minimum_paid' && <StatusBadge status={item.status} />}
+              </span>
+              <Button
+                variant="secondary"
+                className="!min-h-8 !px-3 text-xs"
+                onClick={() => (item.type === 'loan' ? payLoan(item.loanId, item.number) : payCard(item.id))}
+              >
+                {t('common.pay')}
+              </Button>
+            </li>
+          ))}
+        </ul>
+      )}
+      <ErrorText>{error}</ErrorText>
+      {paying && (
+        <PayStatement
+          statement={paying}
+          onClose={() => setPaying(null)}
+          onSaved={() => {
+            setPaying(null);
+            onChanged();
+          }}
+        />
+      )}
+    </Card>
   );
 }

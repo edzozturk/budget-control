@@ -1,5 +1,5 @@
 export type Locale = 'tr' | 'en';
-export type AccountType = 'bank' | 'cash' | 'credit_card' | 'savings' | 'other';
+export type AccountType = 'bank' | 'cash' | 'credit_card' | 'overdraft' | 'savings' | 'other';
 export type CategoryKind = 'income' | 'expense';
 export type TransactionKind = 'income' | 'expense' | 'transfer';
 
@@ -35,6 +35,90 @@ export interface Account {
   openingBalance: number;
   balance: number;
   archived: boolean;
+  creditLimit: number | null;
+  interestRate: number | null;
+  statementDay: number | null;
+  dueDay: number | null;
+  last4: string | null;
+}
+
+export interface Member {
+  id: string;
+  name: string;
+  color: string;
+  archived: boolean;
+}
+
+export interface Installment {
+  id: string;
+  loanId: string;
+  number: number;
+  dueDate: string;
+  amount: number;
+  paidDate: string | null;
+  transactionId: string | null;
+}
+
+export interface Loan {
+  id: string;
+  name: string;
+  lender: string;
+  currency: string;
+  principal: number;
+  installmentAmount: number;
+  installmentCount: number;
+  firstDueDate: string;
+  accountId: string | null;
+  categoryId: string | null;
+  memberId: string | null;
+  note: string;
+  paidCount: number;
+  paidTotal: number;
+  remainingTotal: number;
+  totalRepayment: number;
+  nextInstallment: Installment | null;
+  overdueCount: number;
+  lastDueDate: string;
+  finished: boolean;
+  installments?: Installment[];
+}
+
+export type StatementStatus = 'paid' | 'minimum_paid' | 'overdue' | 'open';
+
+export interface CardStatement {
+  id: string;
+  accountId: string;
+  statementDate: string;
+  dueDate: string;
+  amount: number;
+  minimumPayment: number;
+  interest: number;
+  paidAmount: number;
+  note: string;
+  remaining: number;
+  status: StatementStatus;
+}
+
+export type UpcomingItem =
+  | { type: 'loan'; id: string; loanId: string; name: string; number: number; count: number; dueDate: string; amount: number; currency: string; overdue: boolean }
+  | {
+      type: 'card';
+      id: string;
+      accountId: string;
+      name: string;
+      dueDate: string;
+      amount: number;
+      minimumPayment: number;
+      currency: string;
+      status: StatementStatus;
+      overdue: boolean;
+    };
+
+export interface Upcoming {
+  today: string;
+  until: string;
+  items: UpcomingItem[];
+  missingStatements: { id: string; accountId: string; name: string; statementDate: string }[];
 }
 
 export interface Category {
@@ -55,6 +139,7 @@ export interface Transaction {
   toAccountId: string | null;
   toAmount: number | null;
   note: string;
+  memberId: string | null;
 }
 
 export interface Summary {

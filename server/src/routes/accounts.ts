@@ -12,6 +12,14 @@ const accountInput = z.object({
   currency: currencyCode,
   openingBalance: minorAmount.default(0),
   archived: z.boolean().default(false),
+  creditLimit: z.number().int().min(0).nullish(),
+  interestRate: z.number().min(0).max(100).nullish(),
+  statementDay: z.number().int().min(1).max(31).nullish(),
+  dueDay: z.number().int().min(1).max(31).nullish(),
+  last4: z
+    .string()
+    .regex(/^\d{4}$/, 'Only the last 4 digits')
+    .nullish(),
 });
 
 // Balance = opening balance + income - expense - transfers out + transfers in.

@@ -10,10 +10,14 @@ import { WrongPasswordError } from './db/index.js';
 import { Vault } from './lib/vault.js';
 import { accountRoutes } from './routes/accounts.js';
 import { authRoutes } from './routes/auth.js';
+import { cardRoutes } from './routes/cards.js';
 import { categoryRoutes } from './routes/categories.js';
+import { loanRoutes } from './routes/loans.js';
+import { memberRoutes } from './routes/members.js';
 import { settingsRoutes } from './routes/settings.js';
 import { summaryRoutes } from './routes/summary.js';
 import { transactionRoutes } from './routes/transactions.js';
+import { upcomingRoutes } from './routes/upcoming.js';
 import { HttpError, SESSION_COOKIE } from './lib/http.js';
 
 declare module 'fastify' {
@@ -74,6 +78,10 @@ export async function buildApp(config: Config, opts: { logger?: boolean } = {}) 
         await secured.register(categoryRoutes);
         await secured.register(transactionRoutes);
         await secured.register(summaryRoutes);
+        await secured.register(memberRoutes);
+        await secured.register(loanRoutes);
+        await secured.register(cardRoutes);
+        await secured.register(upcomingRoutes);
       });
     },
     { prefix: '/api' },

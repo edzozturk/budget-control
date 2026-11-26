@@ -6,7 +6,7 @@ import { useData } from '../lib/data';
 import { useT } from '../lib/i18n';
 import { decimalsOf, toInput, toMinor } from '../lib/money';
 
-const TYPES: AccountType[] = ['bank', 'cash', 'credit_card', 'savings', 'other'];
+const TYPES: AccountType[] = ['bank', 'cash', 'credit_card', 'overdraft', 'savings', 'other'];
 
 export function Accounts() {
   const { t } = useT();
@@ -28,6 +28,7 @@ export function Accounts() {
                     <span className="block truncate font-medium">{a.name}</span>
                     <span className="block text-xs text-slate-500 dark:text-slate-400">
                       {t(`accountType.${a.type}`)} · {a.currency}
+                      {a.last4 ? ` · •••• ${a.last4}` : ''}
                       {a.archived ? ` · ${t('common.archived')}` : ''}
                     </span>
                   </span>
@@ -51,13 +52,36 @@ function AccountForm({ initial, onClose }: { initial?: Account; onClose: () => v
   const [currency, setCurrency] = useState(initial?.currency ?? settings.baseCurrency);
   const dec = decimalsOf(currencies, currency);
   const [opening, setOpening] = useState(initial ? toInput(initial.openingBalance, dec, locale) : '');
+  const [limit, setLimit] = useState(initial?.creditLimit != null ? toInput(initial.creditLimit, dec, locale) : '');
+  const [rate, setRate] = useState(initial?.interestRate != null ? String(initial.interestRate).replace('.', locale === 'tr' ? ',' : '.') : '');
+  const [statementDay, setStatementDay] = useState(initial?.statementDay?.toString() ?? '');
+  const [dueDay, setDueDay] = useState(initial?.dueDay?.toString() ?? '');
+  const [last4, setLast4] = useState(initial?.last4 ?? '');
   const [error, setError] = useState('');
+  const isCard = type === 'credit_card';
+  const hasLimit = isCard || type === 'overdraft';
 
   async function save(e: FormEvent, patch: Partial<Account> = {}) {
     e.preventDefault();
     const openingBalance = opening.trim() ? toMinor(opening, dec) : 0;
     if (openingBalance === null) return setError(t('tx.invalidAmount'));
-    const body = { name, type, currency, openingBalance, ...patch };
+    const creditLimit = hasLimit && limit.trim() ? toMinor(limit, dec) : null;
+    if (hasLimit && limit.trim() && creditLimit === null) return setError(t('tx.invalidAmount'));
+    const interestRate = hasLimit && rate.trim() ? Number(rate.replace(',', '.')) : null;
+    if (interestRate !== null && !(interestRate >= 0 && interestRate <= 100)) return setError(t('tx.invalidAmount'));
+    const day = (v: string) => (isCard && v ? Number(v) : null);
+    const body = {
+      name,
+      type,
+      currency,
+      openingBalance,
+      creditLimit,
+      interestRate,
+      statementDay: day(statementDay),
+      dueDay: day(dueDay),
+      last4: isCard && last4 ? last4 : null,
+      ...patch,
+    };
     try {
       if (initial) await api.put(`/accounts/${initial.id}`, body);
       else await api.post('/accounts', body);
@@ -108,6 +132,37 @@ function AccountForm({ initial, onClose }: { initial?: Account; onClose: () => v
         <Field label={t('account.openingBalance')}>
           <Input inputMode="decimal" value={opening} onChange={(e) => setOpening(e.target.value)} placeholder="0" />
         </Field>
+        {hasLimit && (
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t('account.creditLimit')}>
+              <Input inputMode="decimal" value={limit} onChange={(e) => setLimit(e.target.value)} />
+            </Field>
+            <Field label={t('account.interestRate')}>
+              <Input inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} />
+            </Field>
+          </div>
+        )}
+        {isCard && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={t('account.statementDay')}>
+                <Input type="number" min={1} max={31} value={statementDay} onChange={(e) => setStatementDay(e.target.value)} />
+              </Field>
+              <Field label={t('account.dueDay')}>
+                <Input type="number" min={1} max={31} value={dueDay} onChange={(e) => setDueDay(e.target.value)} />
+              </Field>
+            </div>
+            <Field label={t('account.last4')} help={t('account.last4Help')}>
+              <Input
+                inputMode="numeric"
+                maxLength={4}
+                pattern="[0-9]{4}"
+                value={last4}
+                onChange={(e) => setLast4(e.target.value.replace(/\D/g, '').slice(0, 4))}
+              />
+            </Field>
+          </>
+        )}
         <ErrorText>{error}</ErrorText>
         <div className="flex flex-wrap gap-2">
           {initial && (

@@ -4,19 +4,25 @@ import { api, LOCKED_EVENT, type Status } from './lib/api';
 import { DataProvider, useData } from './lib/data';
 import { LocaleContext, makeT } from './lib/i18n';
 import { Accounts } from './pages/Accounts';
+import { Cards } from './pages/Cards';
 import { Categories } from './pages/Categories';
 import { Dashboard } from './pages/Dashboard';
+import { Loans } from './pages/Loans';
 import { LockScreen } from './pages/LockScreen';
 import { SettingsPage } from './pages/SettingsPage';
 import { Transactions } from './pages/Transactions';
 
-const PAGES = ['dashboard', 'transactions', 'accounts', 'categories', 'settings'] as const;
+const PAGES = ['dashboard', 'transactions', 'loans', 'cards', 'accounts', 'categories', 'settings'] as const;
 type Page = (typeof PAGES)[number];
+// The phone tab bar shows these; the rest sit behind "More".
+const MOBILE_TABS: Page[] = ['dashboard', 'transactions', 'loans', 'cards'];
 
 const ICONS: Record<Page, string> = {
   dashboard: 'M3 13h8V3H3v10Zm0 8h8v-6H3v6Zm10 0h8V11h-8v10Zm0-18v6h8V3h-8Z',
   transactions: 'M4 6h16M4 12h16M4 18h10',
-  accounts: 'M3 7h18v12H3zM3 11h18M7 15h3',
+  loans: 'M3 10 12 4l9 6M5 10v8M9.5 10v8M14.5 10v8M19 10v8M3 20h18',
+  cards: 'M3 6h18v12H3zM3 10h18M7 15h4',
+  accounts: 'M4 7h14a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H4zM4 7V6a2 2 0 0 1 2-2h10M16 13.5h.01',
   categories: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
   settings: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Zm7.4-3a7.4 7.4 0 0 0-.1-1.2l2-1.6-2-3.4-2.4 1a7.6 7.6 0 0 0-2-1.2L14.5 3h-5l-.4 2.6a7.6 7.6 0 0 0-2 1.2l-2.4-1-2 3.4 2 1.6a7.4 7.4 0 0 0 0 2.4l-2 1.6 2 3.4 2.4-1a7.6 7.6 0 0 0 2 1.2l.4 2.6h5l.4-2.6a7.6 7.6 0 0 0 2-1.2l2.4 1 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z',
 };
@@ -71,11 +77,15 @@ function Shell({ status, onLock }: { status: Status; onLock: () => void }) {
   const { settings } = useData();
   const t = makeT(settings.locale);
   const [page, setPage] = useState<Page>(pageFromHash);
+  const [more, setMore] = useState(false);
   useTheme(settings.theme);
 
   useEffect(() => {
     document.documentElement.lang = settings.locale;
-    const onHash = () => setPage(pageFromHash());
+    const onHash = () => {
+      setPage(pageFromHash());
+      setMore(false);
+    };
     window.addEventListener('hashchange', onHash);
     return () => window.removeEventListener('hashchange', onHash);
   }, [settings.locale]);
@@ -135,22 +145,44 @@ function Shell({ status, onLock }: { status: Status; onLock: () => void }) {
         <main className="mx-auto w-full max-w-5xl flex-1 p-4 pb-24 sm:p-6 lg:pb-6">
           {page === 'dashboard' && <Dashboard navigate={navigate} />}
           {page === 'transactions' && <Transactions />}
+          {page === 'loans' && <Loans />}
+          {page === 'cards' && <Cards />}
           {page === 'accounts' && <Accounts />}
           {page === 'categories' && <Categories />}
           {page === 'settings' && <SettingsPage appName={status.appName} version={status.version} />}
         </main>
 
-        <nav className="fixed inset-x-0 bottom-0 z-10 grid grid-cols-5 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] dark:border-slate-800 dark:bg-slate-900 lg:hidden">
-          {PAGES.map((p) => (
+        {more && (
+          <div className="fixed inset-0 z-20 bg-slate-900/40 lg:hidden" onClick={() => setMore(false)}>
+            <div className="absolute inset-x-0 bottom-0 rounded-t-2xl bg-white p-3 pb-[calc(4.5rem+env(safe-area-inset-bottom))] dark:bg-slate-900" onClick={(e) => e.stopPropagation()}>
+              {PAGES.filter((p) => !MOBILE_TABS.includes(p)).map((p) => (
+                <a key={p} href={`#/${p}`} onClick={() => setMore(false)} className="flex items-center gap-3 rounded-lg px-3 py-3 font-medium hover:bg-slate-100 dark:hover:bg-slate-800">
+                  <Icon d={ICONS[p]} />
+                  {label(p)}
+                </a>
+              ))}
+            </div>
+          </div>
+        )}
+
+        <nav className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-slate-200 bg-white pb-[env(safe-area-inset-bottom)] dark:border-slate-800 dark:bg-slate-900 lg:hidden">
+          {MOBILE_TABS.map((p) => (
             <a
               key={p}
               href={`#/${p}`}
-              className={cx('flex flex-col items-center gap-0.5 py-2 text-[11px]', page === p ? 'text-teal-700 dark:text-teal-300' : 'text-slate-500')}
+              className={cx('flex flex-col items-center gap-0.5 py-2 text-[11px]', page === p && !more ? 'text-teal-700 dark:text-teal-300' : 'text-slate-500')}
             >
               <Icon d={ICONS[p]} />
               <span className="max-w-full truncate px-1">{label(p)}</span>
             </a>
           ))}
+          <button
+            onClick={() => setMore(!more)}
+            className={cx('flex flex-col items-center gap-0.5 py-2 text-[11px]', more || !MOBILE_TABS.includes(page) ? 'text-teal-700 dark:text-teal-300' : 'text-slate-500')}
+          >
+            <Icon d="M4 12a1.5 1.5 0 1 0 3 0 1.5 1.5 0 1 0-3 0M10.5 12a1.5 1.5 0 1 0 3 0 1.5 1.5 0 1 0-3 0M17 12a1.5 1.5 0 1 0 3 0 1.5 1.5 0 1 0-3 0" />
+            <span>{t('nav.more')}</span>
+          </button>
         </nav>
       </div>
     </LocaleContext.Provider>
