@@ -109,7 +109,7 @@ describe('statement parsing', () => {
       { date: '2026-10-20', description: 'ORNEK KISI tarafindan aktarilan- FAST-0000000000', amount: -50000 },
       { date: '2026-10-05', description: 'HGS Bakiye Yukleme', amount: -154000 },
     ]);
-  });
+  }, 30000); // the first PDF loads pdf.js, which is slow on cold CI runners
 
   it('keeps lines outside the table as plain rows', () => {
     const item = (x0: number, y: number, text: string) => ({ x0, x1: x0 + text.length * 4, y, text });
