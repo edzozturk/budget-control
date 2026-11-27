@@ -4,8 +4,9 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { accounts, categories, categoryRules, currencies, importLines, imports, transactions } from '../db/schema.js';
+import { bankByCode, detectStatementOwner } from '../lib/banks.js';
 import { addDays } from '../lib/dates.js';
-import { HttpError, idParam, isoDate, notFound } from '../lib/http.js';
+import { HttpError, idParam, isoDate, notFound, parsePatch } from '../lib/http.js';
 import {
   type Cell,
   foldText,
@@ -118,8 +119,24 @@ export async function importRoutes(app: FastifyInstance) {
     const saved = savedMapping(account.importMapping);
     const decimals = decimalsFor(vault.db, account.currency);
     const mapping = saved && readLines(rows, saved, decimals).length > 0 ? saved : guessMapping(rows, account.type === 'credit_card');
-    return { rows, mapping, savedMapping: mapping === saved };
+    return { rows, mapping, savedMapping: mapping === saved, owner: ownerOf(req.workspaceId, account, rows, mapping.headerRow) };
   });
+
+  // Which account the file seems to belong to, from an IBAN or the bank's name above the table.
+  // `suggestedAccountId` is set only when that is another account than the one chosen.
+  function ownerOf(workspaceId: string, account: typeof accounts.$inferSelect, rows: Cell[][], headerRow: number) {
+    const preamble = rows.slice(0, headerRow > 0 ? headerRow : 15).flat().filter(Boolean).join(' ');
+    const { ibans, bankCode } = detectStatementOwner(preamble);
+    if (!bankCode) return { bankCode: null, bankName: null, suggestedAccountId: null, otherBank: false };
+    const all = vault.db.select().from(accounts).where(and(eq(accounts.workspaceId, workspaceId), eq(accounts.archived, false))).all();
+    let match = all.find((a) => a.iban && ibans.includes(a.iban)) ?? null;
+    if (!match && account.bankCode !== bankCode) {
+      const sameBank = all.filter((a) => a.bankCode === bankCode && a.type === account.type);
+      if (sameBank.length === 1) match = sameBank[0];
+    }
+    const thisOne = match ? match.id === account.id : !account.bankCode || account.bankCode === bankCode;
+    return { bankCode, bankName: bankByCode(bankCode)?.name ?? null, suggestedAccountId: !thisOne && match ? match.id : null, otherBank: !thisOne };
+  }
 
   // Normalises the lines and says, for each, whether it is new, already imported, or matches a
   // transaction entered by hand; new lines get a suggested category from the rules.
@@ -387,7 +404,7 @@ export async function importRoutes(app: FastifyInstance) {
   app.put('/category-rules/:id', async (req) => {
     const { id } = idParam.parse(req.params);
     getRule(req.workspaceId, id);
-    const body = ruleInput.partial().parse(req.body);
+    const body = parsePatch(ruleInput, req.body);
     checkRule(req.workspaceId, body);
     return vault.db
       .update(categoryRules)

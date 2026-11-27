@@ -2,7 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import { Money } from '../components/Money';
 import { TagSelect } from '../components/TagSelect';
 import { Button, Card, cx, Empty, ErrorText, Field, Input, PageHeader, Select } from '../components/ui';
-import { api, ApiError, upload, type Cell, type ImportBatch, type ImportLine, type ImportMapping } from '../lib/api';
+import { api, ApiError, upload, type Cell, type ImportBatch, type ImportLine, type ImportMapping, type StatementOwner } from '../lib/api';
 import { useData, useResource } from '../lib/data';
 import { useT } from '../lib/i18n';
 import { formatDate } from '../lib/money';
@@ -12,6 +12,7 @@ interface Parsed {
   rows: Cell[][];
   mapping: ImportMapping;
   savedMapping: boolean;
+  owner: StatementOwner;
 }
 
 type EditableLine = ImportLine & { include: boolean };
@@ -48,15 +49,19 @@ export function Import() {
 
   async function read(e: FormEvent) {
     e.preventDefault();
-    if (!file || !accountId) return;
+    await parseFile(accountId);
+  }
+
+  async function parseFile(id: string) {
+    if (!file || !id) return;
     reset();
     setMessage('');
     setBusy(true);
     try {
-      const result = await upload<Parsed>(`/imports/parse?accountId=${accountId}`, file);
+      const result = await upload<Parsed>(`/imports/parse?accountId=${id}`, file);
       setParsed(result);
       setMapping(result.mapping);
-      await preview(result.rows, result.mapping);
+      await preview(result.rows, result.mapping, id);
     } catch (err) {
       setError(explain(err));
     } finally {
@@ -64,11 +69,11 @@ export function Import() {
     }
   }
 
-  async function preview(rows = parsed?.rows, m = mapping) {
+  async function preview(rows = parsed?.rows, m = mapping, id = accountId) {
     if (!rows || !m) return;
     setError('');
     try {
-      const result = await api.post<{ lines: ImportLine[] }>('/imports/preview', { accountId, rows, mapping: m });
+      const result = await api.post<{ lines: ImportLine[] }>('/imports/preview', { accountId: id, rows, mapping: m });
       setLines(result.lines.map((l) => ({ ...l, include: l.status !== 'duplicate' })));
     } catch (err) {
       setError(explain(err));
@@ -130,6 +135,15 @@ export function Import() {
             {t('import.read')}
           </Button>
         </form>
+        {parsed?.owner.otherBank && (
+          <OwnerNotice
+            owner={parsed.owner}
+            onSwitch={(id) => {
+              setAccountId(id);
+              parseFile(id);
+            }}
+          />
+        )}
         {message && <p className="mt-3 text-sm text-emerald-700 dark:text-emerald-400">✓ {message}</p>}
         <div className="mt-3">
           <ErrorText>{error}</ErrorText>
@@ -445,5 +459,24 @@ function HistoryCard({ batches, onUndone }: { batches: ImportBatch[]; onUndone: 
         ))}
       </ul>
     </Card>
+  );
+}
+
+// The file names another account's IBAN or another bank than the chosen account's.
+function OwnerNotice({ owner, onSwitch }: { owner: StatementOwner; onSwitch: (accountId: string) => void }) {
+  const { t } = useT();
+  const { accounts } = useData();
+  const suggested = accounts.find((a) => a.id === owner.suggestedAccountId);
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
+      <span className="flex-1">
+        ⚠ {suggested ? t('import.otherAccount', { account: suggested.name }) : t('import.otherBank', { bank: owner.bankName ?? owner.bankCode ?? '' })}
+      </span>
+      {suggested && (
+        <Button type="button" variant="secondary" className="!min-h-8 !px-3 text-xs" onClick={() => onSwitch(suggested.id)}>
+          {t('import.switchAccount', { account: suggested.name })}
+        </Button>
+      )}
+    </div>
   );
 }

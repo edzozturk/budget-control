@@ -3,8 +3,8 @@ import { and, eq } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
-import { loans, members, transactions } from '../db/schema.js';
-import { HttpError, idParam, notFound } from '../lib/http.js';
+import { accounts, loans, members, transactions } from '../db/schema.js';
+import { HttpError, idParam, notFound, parsePatch } from '../lib/http.js';
 
 const memberInput = z.object({
   name: z.string().trim().min(1).max(60),
@@ -46,7 +46,7 @@ export async function memberRoutes(app: FastifyInstance) {
   app.put('/members/:id', async (req) => {
     const { id } = idParam.parse(req.params);
     getMember(vault.db, req.workspaceId, id);
-    const body = memberInput.partial().parse(req.body);
+    const body = parsePatch(memberInput, req.body);
     return vault.db
       .update(members)
       .set({ ...body, updatedAt: new Date().toISOString() })
@@ -62,7 +62,10 @@ export async function memberRoutes(app: FastifyInstance) {
       vault.db.select({ id: transactions.id }).from(transactions).where(eq(transactions.memberId, id)).get() ??
       vault.db.select({ id: loans.id }).from(loans).where(eq(loans.memberId, id)).get();
     if (used) throw new HttpError(409, 'in_use', 'Member is in use; archive instead');
-    vault.db.delete(members).where(eq(members.id, id)).run();
+    vault.db.transaction((tx) => {
+      tx.update(accounts).set({ ownerMemberId: null }).where(eq(accounts.ownerMemberId, id)).run();
+      tx.delete(members).where(eq(members.id, id)).run();
+    });
     reply.code(204);
   });
 }

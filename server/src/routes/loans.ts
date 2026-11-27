@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { currencies, loanInstallments, loans, transactions } from '../db/schema.js';
 import { addMonths, todayIso } from '../lib/dates.js';
-import { currencyCode, HttpError, idParam, isoDate, notFound } from '../lib/http.js';
+import { currencyCode, HttpError, idParam, isoDate, notFound, parsePatch } from '../lib/http.js';
 import { getAccount } from './accounts.js';
 import { getCategory } from './categories.js';
 import { getMember } from './members.js';
@@ -143,7 +143,7 @@ export async function loanRoutes(app: FastifyInstance) {
   app.put('/loans/:id', async (req) => {
     const { id } = idParam.parse(req.params);
     getLoan(vault.db, req.workspaceId, id);
-    const body = loanUpdate.parse(req.body);
+    const body = parsePatch(loanUpdate, req.body);
     checkRefs(vault.db, req.workspaceId, body);
     vault.db
       .update(loans)

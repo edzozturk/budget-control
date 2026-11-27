@@ -4,7 +4,9 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { ACCOUNT_TYPES, accounts, currencies, importLines, imports, transactions } from '../db/schema.js';
-import { currencyCode, HttpError, idParam, minorAmount, notFound } from '../lib/http.js';
+import { BANKS, ibanBankCode, normalizeIban, validIban } from '../lib/banks.js';
+import { currencyCode, HttpError, idParam, isoDate, minorAmount, notFound, parsePatch } from '../lib/http.js';
+import { getMember } from './members.js';
 
 const accountInput = z.object({
   name: z.string().trim().min(1).max(100),
@@ -20,7 +22,40 @@ const accountInput = z.object({
     .string()
     .regex(/^\d{4}$/, 'Only the last 4 digits')
     .nullish(),
+  bankCode: z
+    .string()
+    .regex(/^\d{5}$/)
+    .nullish(),
+  branchName: optionalText(100),
+  branchCode: optionalText(20),
+  accountNumber: optionalText(40),
+  accountSuffix: optionalText(20),
+  iban: z
+    .string()
+    .transform(normalizeIban)
+    .refine((v) => v === '' || validIban(v), 'Invalid IBAN')
+    .transform((v) => v || null)
+    .nullish(),
+  customerNumber: optionalText(40),
+  ownerMemberId: z.string().uuid().nullish(),
+  joint: z.boolean().optional(),
+  openedOn: isoDate.nullish(),
+  closedOn: isoDate.nullish(),
+  interestDay: z.number().int().min(1).max(31).nullish(),
+  termStart: isoDate.nullish(),
+  termEnd: isoDate.nullish(),
+  autoRenew: z.boolean().optional(),
+  note: optionalText(1000),
 });
+
+function optionalText(max: number) {
+  return z
+    .string()
+    .trim()
+    .max(max)
+    .transform((v) => v || null)
+    .nullish();
+}
 
 // Balance = opening balance + income - expense - transfers out + transfers in.
 function balances(db: Db, workspaceId: string) {
@@ -59,6 +94,15 @@ export async function accountRoutes(app: FastifyInstance) {
     balance: balances(vault.db, workspaceId).get(account.id) ?? account.openingBalance,
   });
 
+  // The bank's side of an account: the IBAN names the bank, the member must be in this workspace.
+  const checkDetails = (workspaceId: string, body: Partial<z.infer<typeof accountInput>>) => {
+    if (body.iban && !body.bankCode) body.bankCode = ibanBankCode(body.iban) ?? body.bankCode;
+    if (body.ownerMemberId) getMember(vault.db, workspaceId, body.ownerMemberId);
+    if (body.closedOn && body.archived === undefined) body.archived = true;
+  };
+
+  app.get('/banks', async () => BANKS.map(({ code, name }) => ({ code, name })));
+
   app.get('/accounts', async (req) => {
     const bal = balances(vault.db, req.workspaceId);
     return vault.db
@@ -73,6 +117,7 @@ export async function accountRoutes(app: FastifyInstance) {
   app.post('/accounts', async (req, reply) => {
     const body = accountInput.parse(req.body);
     assertCurrency(body.currency);
+    checkDetails(req.workspaceId, body);
     const account = vault.db
       .insert(accounts)
       .values({ id: randomUUID(), workspaceId: req.workspaceId, ...body })
@@ -84,8 +129,9 @@ export async function accountRoutes(app: FastifyInstance) {
 
   app.put('/accounts/:id', async (req) => {
     const { id } = idParam.parse(req.params);
-    const body = accountInput.partial().parse(req.body);
+    const body = parsePatch(accountInput, req.body);
     const current = getAccount(vault.db, req.workspaceId, id);
+    checkDetails(req.workspaceId, body);
     if (body.currency && body.currency !== current.currency) {
       assertCurrency(body.currency);
       const used = vault.db
