@@ -175,7 +175,7 @@ function UpcomingCard({ data, navigate, onChanged }: { data: Upcoming; navigate:
           {data.items.map((item) => (
             <li key={`${item.type}-${item.id}`} className="flex items-center gap-3 py-2 text-sm">
               <span className="w-5 text-center" aria-hidden>
-                {item.type === 'loan' ? '🏦' : '💳'}
+                {item.type === 'loan' ? '🏦' : item.type === 'term_end' ? '📅' : '💳'}
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate font-medium">
@@ -184,7 +184,9 @@ function UpcomingCard({ data, navigate, onChanged }: { data: Upcoming; navigate:
                 </span>
                 <span className={cx('block text-xs', item.overdue ? 'font-medium text-red-600 dark:text-red-400' : 'text-slate-500 dark:text-slate-400')}>
                   {item.overdue ? `${t('common.overdue')} · ` : ''}
+                  {item.type === 'term_end' ? `${t('upcoming.termEnd')} · ` : ''}
                   {formatDate(item.dueDate, locale)}
+                  {item.type === 'term_end' && item.autoRenew ? ` · ${t('upcoming.autoRenew')}` : ''}
                   {item.type === 'card' && item.minimumPayment > 0 && item.status !== 'minimum_paid' ? (
                     <>
                       {' · '}
@@ -193,17 +195,25 @@ function UpcomingCard({ data, navigate, onChanged }: { data: Upcoming; navigate:
                   ) : null}
                 </span>
               </span>
-              <span className="text-right">
-                <Money amount={item.amount} currency={item.currency} className="block font-semibold" />
-                {item.type === 'card' && item.status === 'minimum_paid' && <StatusBadge status={item.status} />}
-              </span>
-              <Button
-                variant="secondary"
-                className="!min-h-8 !px-3 text-xs"
-                onClick={() => (item.type === 'loan' ? payLoan(item.loanId, item.number) : payCard(item.id))}
-              >
-                {t('common.pay')}
-              </Button>
+              {item.type === 'term_end' ? (
+                <Button variant="secondary" className="!min-h-8 !px-3 text-xs" onClick={() => navigate('accounts')}>
+                  {t('common.open')}
+                </Button>
+              ) : (
+                <>
+                  <span className="text-right">
+                    <Money amount={item.amount} currency={item.currency} className="block font-semibold" />
+                    {item.type === 'card' && item.status === 'minimum_paid' && <StatusBadge status={item.status} />}
+                  </span>
+                  <Button
+                    variant="secondary"
+                    className="!min-h-8 !px-3 text-xs"
+                    onClick={() => (item.type === 'loan' ? payLoan(item.loanId, item.number) : payCard(item.id))}
+                  >
+                    {t('common.pay')}
+                  </Button>
+                </>
+              )}
             </li>
           ))}
         </ul>

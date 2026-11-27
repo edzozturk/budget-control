@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { CATEGORY_KINDS, categories, transactions } from '../db/schema.js';
-import { HttpError, idParam, notFound } from '../lib/http.js';
+import { HttpError, idParam, notFound, parsePatch } from '../lib/http.js';
 
 const categoryInput = z.object({
   name: z.string().trim().min(1).max(100),
@@ -51,7 +51,7 @@ export async function categoryRoutes(app: FastifyInstance) {
 
   app.put('/categories/:id', async (req) => {
     const { id } = idParam.parse(req.params);
-    const body = categoryInput.partial().parse(req.body);
+    const body = parsePatch(categoryInput, req.body);
     const current = getCategory(vault.db, req.workspaceId, id);
     if (body.kind && body.kind !== current.kind) {
       const used = vault.db.select({ id: transactions.id }).from(transactions).where(eq(transactions.categoryId, id)).get();

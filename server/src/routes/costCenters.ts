@@ -4,7 +4,7 @@ import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { categoryRules, costCenters, transactions } from '../db/schema.js';
-import { HttpError, idParam, notFound } from '../lib/http.js';
+import { HttpError, idParam, notFound, parsePatch } from '../lib/http.js';
 
 const costCenterInput = z.object({
   name: z.string().trim().min(1).max(100),
@@ -46,7 +46,7 @@ export async function costCenterRoutes(app: FastifyInstance) {
   app.put('/cost-centers/:id', async (req) => {
     const { id } = idParam.parse(req.params);
     getCostCenter(vault.db, req.workspaceId, id);
-    const body = costCenterInput.partial().parse(req.body);
+    const body = parsePatch(costCenterInput, req.body);
     return vault.db
       .update(costCenters)
       .set({ ...body, updatedAt: new Date().toISOString() })

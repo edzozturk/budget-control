@@ -5,7 +5,7 @@ import { z } from 'zod';
 import type { Db } from '../db/index.js';
 import { cardStatements, transactions } from '../db/schema.js';
 import { addMonths, todayIso } from '../lib/dates.js';
-import { HttpError, idParam, isoDate, notFound } from '../lib/http.js';
+import { HttpError, idParam, isoDate, notFound, parsePatch } from '../lib/http.js';
 import { getAccount } from './accounts.js';
 
 const nonNegative = z.number().int().min(0);
@@ -104,7 +104,7 @@ export async function cardRoutes(app: FastifyInstance) {
   app.put('/card-statements/:id', async (req) => {
     const { id } = idParam.parse(req.params);
     getStatement(vault.db, req.workspaceId, id);
-    const body = statementInput.omit({ accountId: true }).partial().parse(req.body);
+    const body = parsePatch(statementInput.omit({ accountId: true }), req.body);
     const row = vault.db
       .update(cardStatements)
       .set({ ...body, updatedAt: new Date().toISOString() })

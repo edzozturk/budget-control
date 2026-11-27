@@ -6,7 +6,7 @@ import { addDays, addMonths, nextDayOfMonth, todayIso } from '../lib/dates.js';
 import { statementStatus } from './cards.js';
 
 // Payments coming due (and overdue): loan installments, unpaid card statements,
-// and cards whose latest statement has not been entered yet.
+// term deposits reaching their end, and cards whose latest statement has not been entered yet.
 export async function upcomingRoutes(app: FastifyInstance) {
   const { vault } = app;
 
@@ -66,6 +66,24 @@ export async function upcomingRoutes(app: FastifyInstance) {
         overdue: s.status === 'overdue',
       }));
 
+    // Term deposits reaching the end of their term: renew, move or close them.
+    const terms = vault.db
+      .select()
+      .from(accounts)
+      .where(and(eq(accounts.workspaceId, req.workspaceId), eq(accounts.type, 'term_deposit'), eq(accounts.archived, false)))
+      .all()
+      .filter((a) => a.termEnd && a.termEnd >= today && a.termEnd <= until)
+      .map((a) => ({
+        type: 'term_end' as const,
+        id: a.id,
+        accountId: a.id,
+        name: a.name,
+        dueDate: a.termEnd!,
+        autoRenew: a.autoRenew,
+        currency: a.currency,
+        overdue: false,
+      }));
+
     // A card is missing a statement when its most recent cut-off day has passed with no statement on or after it.
     const missing = cards
       .filter((c) => c.statementDay)
@@ -79,7 +97,7 @@ export async function upcomingRoutes(app: FastifyInstance) {
     return {
       today,
       until,
-      items: [...installments, ...open].sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
+      items: [...installments, ...open, ...terms].sort((a, b) => a.dueDate.localeCompare(b.dueDate)),
       missingStatements: missing,
     };
   });

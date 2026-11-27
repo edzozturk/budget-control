@@ -1,5 +1,5 @@
 export type Locale = 'tr' | 'en';
-export type AccountType = 'bank' | 'cash' | 'credit_card' | 'overdraft' | 'savings' | 'other';
+export type AccountType = 'bank' | 'cash' | 'credit_card' | 'overdraft' | 'savings' | 'term_deposit' | 'fx' | 'gold' | 'investment' | 'other';
 export type CategoryKind = 'income' | 'expense';
 export type TransactionKind = 'income' | 'expense' | 'transfer';
 
@@ -40,6 +40,34 @@ export interface Account {
   statementDay: number | null;
   dueDay: number | null;
   last4: string | null;
+  bankCode: string | null;
+  branchName: string | null;
+  branchCode: string | null;
+  accountNumber: string | null;
+  accountSuffix: string | null;
+  iban: string | null;
+  customerNumber: string | null;
+  ownerMemberId: string | null;
+  joint: boolean;
+  openedOn: string | null;
+  closedOn: string | null;
+  interestDay: number | null;
+  termStart: string | null;
+  termEnd: string | null;
+  autoRenew: boolean;
+  note: string | null;
+}
+
+export interface Bank {
+  code: string;
+  name: string;
+}
+
+export interface StatementOwner {
+  bankCode: string | null;
+  bankName: string | null;
+  suggestedAccountId: string | null;
+  otherBank: boolean;
 }
 
 export type Cell = string | number | null;
@@ -161,7 +189,8 @@ export type UpcomingItem =
       currency: string;
       status: StatementStatus;
       overdue: boolean;
-    };
+    }
+  | { type: 'term_end'; id: string; accountId: string; name: string; dueDate: string; autoRenew: boolean; currency: string; overdue: false };
 
 export interface Upcoming {
   today: string;

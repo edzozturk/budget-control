@@ -42,7 +42,7 @@ export const currencies = sqliteTable('currencies', {
 });
 
 // 'overdraft' is a bank overdraft account (KMH): its balance goes negative up to creditLimit.
-export const ACCOUNT_TYPES = ['bank', 'cash', 'credit_card', 'overdraft', 'savings', 'other'] as const;
+export const ACCOUNT_TYPES = ['bank', 'cash', 'credit_card', 'overdraft', 'savings', 'term_deposit', 'fx', 'gold', 'investment', 'other'] as const;
 
 export const accounts = sqliteTable(
   'accounts',
@@ -67,6 +67,27 @@ export const accounts = sqliteTable(
     last4: text('last4'),
     // Column mapping remembered from the last statement import (JSON).
     importMapping: text('import_mapping'),
+    // The bank's side: 5-digit bank (EFT) code, branch, account number, IBAN, customer number.
+    // Kept only in the encrypted database. Passwords, CVVs and full card numbers are never stored.
+    bankCode: text('bank_code'),
+    branchName: text('branch_name'),
+    branchCode: text('branch_code'),
+    accountNumber: text('account_number'),
+    accountSuffix: text('account_suffix'),
+    iban: text('iban'),
+    customerNumber: text('customer_number'),
+    // Who the account belongs to; joint accounts are shared with others.
+    ownerMemberId: text('owner_member_id').references(() => members.id, { onDelete: 'set null' }),
+    joint: integer('joint', { mode: 'boolean' }).notNull().default(false),
+    openedOn: text('opened_on'),
+    closedOn: text('closed_on'),
+    // Overdrafts: day of the month interest is charged.
+    interestDay: integer('interest_day'),
+    // Term deposits: term start and end, renewed automatically at the end or not.
+    termStart: text('term_start'),
+    termEnd: text('term_end'),
+    autoRenew: integer('auto_renew', { mode: 'boolean' }).notNull().default(false),
+    note: text('note'),
     ...timestamps,
   },
   (t) => [index('accounts_workspace_idx').on(t.workspaceId)],

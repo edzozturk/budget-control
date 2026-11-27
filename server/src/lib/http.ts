@@ -19,3 +19,10 @@ export const minorAmount = z.number().int();
 export const idParam = z.object({ id: z.string().uuid() });
 
 export const SESSION_COOKIE = 'bc_session';
+
+// Parses an update body: only the fields the client sent, so defaults never overwrite stored values.
+export function parsePatch<S extends z.ZodRawShape>(schema: z.ZodObject<S>, input: unknown) {
+  const parsed = schema.partial().parse(input) as Record<string, unknown>;
+  const sent = new Set(Object.keys(input && typeof input === 'object' ? input : {}));
+  return Object.fromEntries(Object.entries(parsed).filter(([k]) => sent.has(k))) as Partial<z.output<z.ZodObject<S>>>;
+}
