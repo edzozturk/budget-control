@@ -123,10 +123,11 @@ export function linesToRows(pages: Item[][]): Cell[][] {
 }
 
 export async function parsePdf(buf: Buffer): Promise<Cell[][]> {
-  const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+  // unpdf ships a self-contained pdf.js build: no native modules, so nothing for Windows to lock.
+  const { getDocumentProxy } = await import('unpdf');
   let doc;
   try {
-    doc = await pdfjs.getDocument({ data: new Uint8Array(buf), isEvalSupported: false, verbosity: 0 }).promise;
+    doc = await getDocumentProxy(new Uint8Array(buf), { verbosity: 0 });
   } catch (err) {
     if ((err as { name?: string }).name === 'PasswordException') throw new PdfError('pdf_encrypted');
     throw new PdfError('unreadable_file');
@@ -142,7 +143,6 @@ export async function parsePdf(buf: Buffer): Promise<Cell[][]> {
     }
     pages.push(items);
   }
-  await doc.destroy();
   if (pages.every((p) => p.length === 0)) throw new PdfError('pdf_no_text');
   return linesToRows(pages);
 }
