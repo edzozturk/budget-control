@@ -1,13 +1,14 @@
 import ExcelJS from 'exceljs';
 import { z } from 'zod';
+import { PdfError, parsePdf } from './pdf.js';
 
-// Bank and card statements arrive as CSV, Excel (.xlsx) or the HTML tables some banks save as .xls.
+// Bank and card statements arrive as CSV, Excel (.xlsx), PDF or the HTML tables some banks save as .xls.
 // They are read into a grid of cells; the user (or a remembered mapping) says which columns hold what.
 
 export type Cell = string | number | null;
 
 export class StatementError extends Error {
-  constructor(public code: 'unsupported_format' | 'empty_file') {
+  constructor(public code: 'unsupported_format' | 'empty_file' | PdfError['code']) {
     super(code);
   }
 }
@@ -99,8 +100,13 @@ export async function parseStatementFile(buf: Buffer): Promise<Cell[][]> {
   let rows: Cell[][];
   if (buf[0] === 0x50 && buf[1] === 0x4b) rows = await parseXlsx(buf);
   else if (buf[0] === 0xd0 && buf[1] === 0xcf) throw new StatementError('unsupported_format'); // legacy binary .xls
-  else if (buf[0] === 0x25 && buf[1] === 0x50) throw new StatementError('unsupported_format'); // PDF
-  else {
+  else if (buf.subarray(0, 1024).includes('%PDF-')) {
+    try {
+      rows = await parsePdf(buf);
+    } catch (err) {
+      throw err instanceof PdfError ? new StatementError(err.code) : err;
+    }
+  } else {
     const text = decodeText(buf);
     rows = /^\s*</.test(text) && /<table/i.test(text) ? parseHtmlTable(text) : parseCsv(text);
   }
@@ -212,9 +218,18 @@ const findCol = (headers: string[], hints: string[], exclude: number[] = []) => 
   return -1;
 };
 
-// Best guess at the mapping: the header row is the last row before the first run of dated rows.
+const isHeaderRow = (r: Cell[]) => {
+  const h = r.map((c) => fold(String(c ?? '')));
+  return findCol(h, HEADER_HINTS.date) > -1 && [HEADER_HINTS.amount, HEADER_HINTS.debit, HEADER_HINTS.credit].some((hints) => findCol(h, hints) > -1);
+};
+
+// Best guess at the mapping: the first row that reads like a header ("Tarih ... Tutar") with dated
+// rows just under it, else the last row before the first run of dated rows.
 export function guessMapping(rows: Cell[][], invert: boolean): Mapping {
-  let firstData = rows.findIndex((r, i) => r.some((c) => parseDate(c)) && rows.slice(i, i + 3).every((x) => x.some((c) => parseDate(c))));
+  const dated = (r: Cell[] | undefined) => !!r?.some((c) => parseDate(c));
+  // A carried-over balance line ("DEVREDEN BAKİYE") may sit between the header and the first movement.
+  let firstData = rows.findIndex((r, i) => isHeaderRow(r) && rows.slice(i + 1, i + 4).some(dated)) + 1;
+  if (firstData === 0) firstData = rows.findIndex((r, i) => dated(r) && rows.slice(i, i + 3).every(dated));
   if (firstData < 0) firstData = 0;
   const headerRow = firstData - 1;
   const sample = rows[firstData] ?? [];
@@ -228,7 +243,9 @@ export function guessMapping(rows: Cell[][], invert: boolean): Mapping {
     const lengths = sample.map((c, i) => (i !== dateCol && typeof c === 'string' && parseAmount(c, 2) === null ? c.length : -1));
     descCol = Math.max(0, lengths.indexOf(Math.max(...lengths)));
   }
-  const used = [dateCol, descCol];
+  // Some banks (QNB) put part of the description in a channel column; read it too.
+  const channelCol = findCol(headers, ['kanal', 'channel'], [dateCol, descCol]);
+  const used = [dateCol, descCol, ...(channelCol > -1 ? [channelCol] : [])];
   const debitCol = findCol(headers, HEADER_HINTS.debit, used);
   const creditCol = findCol(headers, HEADER_HINTS.credit, used);
   let amountCol = findCol(headers, HEADER_HINTS.amount, used);
@@ -239,7 +256,7 @@ export function guessMapping(rows: Cell[][], invert: boolean): Mapping {
   return {
     headerRow,
     dateCol,
-    descriptionCols: [descCol],
+    descriptionCols: channelCol > -1 ? [descCol, channelCol] : [descCol],
     amountCol: split ? null : Math.max(0, amountCol),
     debitCol: split ? debitCol : null,
     creditCol: split ? creditCol : null,

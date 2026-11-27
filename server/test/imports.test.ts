@@ -6,6 +6,8 @@ import type { FastifyInstance } from 'fastify';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
+import { buildPdf } from './pdfFixture.js';
+import { linesToRows } from '../src/lib/pdf.js';
 import { guessMapping, parseAmount, parseCsv, parseDate, parseHtmlTable, parseStatementFile, readLines } from '../src/lib/statement.js';
 
 describe('statement parsing', () => {
@@ -51,6 +53,91 @@ describe('statement parsing', () => {
       { description: 'Kira & aidat', amount: -2000000 },
       { description: 'Maaş', amount: 8000000 },
       { description: 'Su', amount: -30000 },
+    ]);
+  });
+
+  it('reads a bank PDF laid out in columns, with wrapped descriptions and a new page header', async () => {
+    // Shaped like Garanti's internet banking export: right-aligned amounts, a preamble, page footers.
+    const header = (y: number): [number, number, string][] => [
+      [31, y, 'Tarih'],
+      [88, y, 'Aciklama'],
+      [315, y, 'Etiket'],
+      [460, y, 'Tutar'],
+      [541, y, 'Bakiye'],
+    ];
+    const pdf = buildPdf([
+      [
+        [30, 733, 'Sayin MUSTERI, 01/10/2026 - 31/10/2026 tarihleri arasindaki hesap hareketleri'],
+        [30, 706, 'Hesap Numarasi'],
+        [109, 706, ': 000 - 0000000'],
+        ...header(613),
+        [31, 597, '27.10.2026'],
+        [88, 597, 'ORNEK KISI--HVL-CEP SUBE'],
+        [315, 597, 'Para Transferi'],
+        [434, 597, '+80.000,00 TL'],
+        [535, 597, '770,75 TL'],
+        // A description on two lines, with the date and amounts between them.
+        [31, 578, '20.10.2026'],
+        [88, 582.6, 'ORNEK KISI tarafindan aktarilan-'],
+        [88, 573, 'FAST-0000000000'],
+        [315, 578, 'Para Transferi'],
+        [447, 581.5, '-500,00 TL'],
+        [525, 581.5, '-79.229,25 TL'],
+        [30, 63, 'Ornek Bankasi A.S.'],
+        [544, 62, '1 / 2'],
+      ],
+      [
+        // Page two: same header, different column positions.
+        [25, 732, 'Tarih'],
+        [80, 732, 'Aciklama'],
+        [300, 732, 'Etiket'],
+        [450, 732, 'Tutar'],
+        [530, 732, 'Bakiye'],
+        [25, 716, '05.10.2026'],
+        [80, 716, 'HGS Bakiye Yukleme'],
+        [300, 716, 'Ulasim'],
+        [434, 716, '-1.540,00 TL'],
+        [510, 716, '-78.729,25 TL'],
+      ],
+    ]);
+    const rows = await parseStatementFile(pdf);
+    const mapping = guessMapping(rows, false);
+    expect(rows[mapping.headerRow]).toEqual(['Tarih', 'Aciklama', 'Etiket', 'Tutar', 'Bakiye']);
+    expect(mapping).toMatchObject({ dateCol: 0, descriptionCols: [1], amountCol: 3 });
+    expect(readLines(rows, mapping, 2)).toMatchObject([
+      { date: '2026-10-27', description: 'ORNEK KISI--HVL-CEP SUBE', amount: 8000000 },
+      { date: '2026-10-20', description: 'ORNEK KISI tarafindan aktarilan- FAST-0000000000', amount: -50000 },
+      { date: '2026-10-05', description: 'HGS Bakiye Yukleme', amount: -154000 },
+    ]);
+  }, 30000); // the first PDF loads pdf.js, which is slow on cold CI runners
+
+  it('finds the header above a carried-over balance and reads the channel column too', () => {
+    // Shaped like QNB's account movements: "DEVREDEN BAKİYE" under the header, English number format.
+    const rows = [
+      ['Hesap Hareketleri', '27/11/2026'],
+      ['Tarih Aralığı', ':', '01/10/2026 - 27/11/2026'],
+      ['İşlem Tarihi', 'Kanal*', 'İşlem Açıklaması', 'Tutar', 'Bakiye'],
+      ['DEVREDEN BAKİYE', '-1,000.00'],
+      ['27/10/2026', 'ŞB Ödemesi - OTOMATİK', 'Kredi İşlemleri - Kredinin 27/10/2026 Tarihli 3. Taksit', '-4,250.10', '-5,250.10'],
+      ['05/11/2026', 'ŞB Mevduat İşlemleri - Faiz Tahakkuku', '', '-312.40', '-5,562.50'],
+      ['10/11/2026', 'FEFT Örnek Bankası', 'Transfer İşlemleri - Gönderen: ÖRNEK KİŞİ', '20,000.00', '14,437.50'],
+    ];
+    const mapping = guessMapping(rows, false);
+    expect(mapping).toMatchObject({ headerRow: 2, dateCol: 0, descriptionCols: [2, 1], amountCol: 3 });
+    expect(readLines(rows, mapping, 2)).toMatchObject([
+      { date: '2026-10-27', amount: -425010, description: 'Kredi İşlemleri - Kredinin 27/10/2026 Tarihli 3. Taksit ŞB Ödemesi - OTOMATİK' },
+      { date: '2026-11-05', amount: -31240, description: 'ŞB Mevduat İşlemleri - Faiz Tahakkuku' },
+      { date: '2026-11-10', amount: 2000000 },
+    ]);
+  });
+
+  it('keeps lines outside the table as plain rows', () => {
+    const item = (x0: number, y: number, text: string) => ({ x0, x1: x0 + text.length * 4, y, text });
+    expect(linesToRows([[item(30, 700, 'Ekstre'), item(30, 650, 'Tarih'), item(90, 650, 'Islem'), item(400, 650, 'Tutar'), item(30, 630, '01.11.2026'), item(90, 630, 'Market'), item(400, 630, '-12,50'), item(30, 60, 'Sayfa 1')]])).toEqual([
+      ['Ekstre'],
+      ['Tarih', 'Islem', 'Tutar'],
+      ['01.11.2026', 'Market', '-12,50'],
+      ['Sayfa 1'],
     ]);
   });
 
@@ -177,10 +264,12 @@ describe('importing statements', () => {
     expect(reopened.lines.map((l: { status: string }) => l.status)).toEqual(['new', 'new', 'new', 'new', 'matched']);
   });
 
-  it('rejects PDFs for now and applies rules to existing transactions', async () => {
+  it('rejects broken PDFs and applies rules to existing transactions', async () => {
     const bank = (await call('POST', '/api/accounts', { name: 'Banka', type: 'bank', currency: 'TRY' })).body;
     const pdf = await call('POST', `/api/imports/parse?accountId=${bank.id}`, Buffer.from('%PDF-1.4'), 'application/octet-stream');
-    expect(pdf.body.error).toBe('unsupported_format');
+    expect(pdf.body.error).toBe('unreadable_file');
+    const blank = await call('POST', `/api/imports/parse?accountId=${bank.id}`, buildPdf([[]]), 'application/octet-stream');
+    expect(blank.body.error).toBe('pdf_no_text');
 
     const market = ((await call('GET', '/api/categories')).body as { id: string; name: string }[]).find((c) => c.name === 'Market')!;
     await call('POST', '/api/transactions', { kind: 'expense', date: '2026-11-01', accountId: bank.id, amount: 100, note: 'Şok Market Kadıköy' });
