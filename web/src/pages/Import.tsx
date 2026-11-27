@@ -40,7 +40,7 @@ export function Import() {
   };
 
   const explain = (err: unknown) =>
-    err instanceof ApiError && ['unsupported_format', 'empty_file', 'unreadable_file', 'too_many_rows'].includes(err.code)
+    err instanceof ApiError && ['unsupported_format', 'empty_file', 'unreadable_file', 'too_many_rows', 'pdf_encrypted', 'pdf_no_text'].includes(err.code)
       ? t(`import.error.${err.code}` as 'import.error.empty_file')
       : err instanceof ApiError
         ? err.message
@@ -118,7 +118,7 @@ export function Import() {
             <Input
               key={fileKey}
               type="file"
-              accept=".csv,.txt,.xlsx,.xls,.htm,.html"
+              accept=".csv,.txt,.xlsx,.xls,.htm,.html,.pdf"
               className="py-1.5"
               onChange={(e) => {
                 setFile(e.target.files?.[0] ?? null);
