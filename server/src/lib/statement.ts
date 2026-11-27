@@ -223,11 +223,12 @@ const isHeaderRow = (r: Cell[]) => {
   return findCol(h, HEADER_HINTS.date) > -1 && [HEADER_HINTS.amount, HEADER_HINTS.debit, HEADER_HINTS.credit].some((hints) => findCol(h, hints) > -1);
 };
 
-// Best guess at the mapping: the first row that reads like a header ("Tarih ... Tutar") with a dated
-// row under it, else the last row before the first run of dated rows.
+// Best guess at the mapping: the first row that reads like a header ("Tarih ... Tutar") with dated
+// rows just under it, else the last row before the first run of dated rows.
 export function guessMapping(rows: Cell[][], invert: boolean): Mapping {
   const dated = (r: Cell[] | undefined) => !!r?.some((c) => parseDate(c));
-  let firstData = rows.findIndex((r, i) => isHeaderRow(r) && dated(rows[i + 1])) + 1;
+  // A carried-over balance line ("DEVREDEN BAKİYE") may sit between the header and the first movement.
+  let firstData = rows.findIndex((r, i) => isHeaderRow(r) && rows.slice(i + 1, i + 4).some(dated)) + 1;
   if (firstData === 0) firstData = rows.findIndex((r, i) => dated(r) && rows.slice(i, i + 3).every(dated));
   if (firstData < 0) firstData = 0;
   const headerRow = firstData - 1;
@@ -242,7 +243,9 @@ export function guessMapping(rows: Cell[][], invert: boolean): Mapping {
     const lengths = sample.map((c, i) => (i !== dateCol && typeof c === 'string' && parseAmount(c, 2) === null ? c.length : -1));
     descCol = Math.max(0, lengths.indexOf(Math.max(...lengths)));
   }
-  const used = [dateCol, descCol];
+  // Some banks (QNB) put part of the description in a channel column; read it too.
+  const channelCol = findCol(headers, ['kanal', 'channel'], [dateCol, descCol]);
+  const used = [dateCol, descCol, ...(channelCol > -1 ? [channelCol] : [])];
   const debitCol = findCol(headers, HEADER_HINTS.debit, used);
   const creditCol = findCol(headers, HEADER_HINTS.credit, used);
   let amountCol = findCol(headers, HEADER_HINTS.amount, used);
@@ -253,7 +256,7 @@ export function guessMapping(rows: Cell[][], invert: boolean): Mapping {
   return {
     headerRow,
     dateCol,
-    descriptionCols: [descCol],
+    descriptionCols: channelCol > -1 ? [descCol, channelCol] : [descCol],
     amountCol: split ? null : Math.max(0, amountCol),
     debitCol: split ? debitCol : null,
     creditCol: split ? creditCol : null,

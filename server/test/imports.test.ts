@@ -111,6 +111,26 @@ describe('statement parsing', () => {
     ]);
   }, 30000); // the first PDF loads pdf.js, which is slow on cold CI runners
 
+  it('finds the header above a carried-over balance and reads the channel column too', () => {
+    // Shaped like QNB's account movements: "DEVREDEN BAKİYE" under the header, English number format.
+    const rows = [
+      ['Hesap Hareketleri', '27/11/2026'],
+      ['Tarih Aralığı', ':', '01/10/2026 - 27/11/2026'],
+      ['İşlem Tarihi', 'Kanal*', 'İşlem Açıklaması', 'Tutar', 'Bakiye'],
+      ['DEVREDEN BAKİYE', '-1,000.00'],
+      ['27/10/2026', 'ŞB Ödemesi - OTOMATİK', 'Kredi İşlemleri - Kredinin 27/10/2026 Tarihli 3. Taksit', '-4,250.10', '-5,250.10'],
+      ['05/11/2026', 'ŞB Mevduat İşlemleri - Faiz Tahakkuku', '', '-312.40', '-5,562.50'],
+      ['10/11/2026', 'FEFT Örnek Bankası', 'Transfer İşlemleri - Gönderen: ÖRNEK KİŞİ', '20,000.00', '14,437.50'],
+    ];
+    const mapping = guessMapping(rows, false);
+    expect(mapping).toMatchObject({ headerRow: 2, dateCol: 0, descriptionCols: [2, 1], amountCol: 3 });
+    expect(readLines(rows, mapping, 2)).toMatchObject([
+      { date: '2026-10-27', amount: -425010, description: 'Kredi İşlemleri - Kredinin 27/10/2026 Tarihli 3. Taksit ŞB Ödemesi - OTOMATİK' },
+      { date: '2026-11-05', amount: -31240, description: 'ŞB Mevduat İşlemleri - Faiz Tahakkuku' },
+      { date: '2026-11-10', amount: 2000000 },
+    ]);
+  });
+
   it('keeps lines outside the table as plain rows', () => {
     const item = (x0: number, y: number, text: string) => ({ x0, x1: x0 + text.length * 4, y, text });
     expect(linesToRows([[item(30, 700, 'Ekstre'), item(30, 650, 'Tarih'), item(90, 650, 'Islem'), item(400, 650, 'Tutar'), item(30, 630, '01.11.2026'), item(90, 630, 'Market'), item(400, 630, '-12,50'), item(30, 60, 'Sayfa 1')]])).toEqual([
