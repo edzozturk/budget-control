@@ -122,8 +122,14 @@ export async function importRoutes(app: FastifyInstance) {
     if (rows.length > MAX_ROWS) throw new HttpError(400, 'too_many_rows');
     const saved = savedMapping(account.importMapping);
     const decimals = decimalsFor(vault.db, account.currency);
-    const mapping = saved && readLines(rows, saved, decimals).length > 0 ? saved : guessMapping(rows, account.type === 'credit_card');
-    return { rows, mapping, savedMapping: mapping === saved, owner: ownerOf(req.workspaceId, account, rows, mapping.headerRow) };
+    const guess = guessMapping(rows, account.type === 'credit_card');
+    let mapping = saved && readLines(rows, saved, decimals).length > 0 ? saved : guess;
+    // Mappings saved before the balance column was read lack it; take it from the guess when the
+    // header is in the same place, so the balance check works for them too.
+    if (mapping === saved && saved.balanceCol == null && guess.balanceCol != null && guess.headerRow === saved.headerRow) {
+      mapping = { ...saved, balanceCol: guess.balanceCol };
+    }
+    return { rows, mapping, savedMapping: saved != null && mapping !== guess, owner: ownerOf(req.workspaceId, account, rows, mapping.headerRow) };
   });
 
   // Reads an account passbook (hesap cüzdanı) PDF into account details, says whether the account
