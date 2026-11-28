@@ -17,6 +17,13 @@ interface Parsed {
 
 type EditableLine = ImportLine & { include: boolean };
 
+interface BalanceCheck {
+  date: string;
+  statementBalance: number;
+  appBalance: number;
+  difference: number;
+}
+
 const KNOWN_ERRORS = ['unsupported_format', 'empty_file', 'unreadable_file', 'too_many_rows', 'pdf_encrypted', 'pdf_no_text', 'file_changed', 'network', 'internal'];
 
 export function Import() {
@@ -30,12 +37,14 @@ export function Import() {
   const [parsed, setParsed] = useState<Parsed | null>(null);
   const [mapping, setMapping] = useState<ImportMapping | null>(null);
   const [lines, setLines] = useState<EditableLine[] | null>(null);
+  const [check, setCheck] = useState<BalanceCheck | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   const history = useResource<ImportBatch[]>(accountId ? `/imports?accountId=${accountId}` : null);
 
   const reset = () => {
+    setCheck(null);
     setParsed(null);
     setMapping(null);
     setLines(null);
@@ -76,7 +85,8 @@ export function Import() {
     if (!rows || !m) return;
     setError('');
     try {
-      const result = await api.post<{ lines: ImportLine[] }>('/imports/preview', { accountId: id, rows, mapping: m });
+      const result = await api.post<{ lines: ImportLine[]; balanceCheck: BalanceCheck | null }>('/imports/preview', { accountId: id, rows, mapping: m });
+      setCheck(result.balanceCheck);
       setLines(result.lines.map((l) => ({ ...l, include: l.status !== 'duplicate' })));
     } catch (err) {
       setError(explain(err));
@@ -89,7 +99,9 @@ export function Import() {
     try {
       const result = await api.post<{ createdCount: number; matchedCount: number }>('/imports', { accountId, fileName: file?.name ?? '', mapping, lines });
       setMessage(t('import.done', { created: result.createdCount, matched: result.matchedCount }));
+      const kept = check;
       reset();
+      setCheck(kept);
       setFile(null);
       setFileKey((k) => k + 1);
       history.refresh();
@@ -148,6 +160,16 @@ export function Import() {
           />
         )}
         {message && <p className="mt-3 text-sm text-emerald-700 dark:text-emerald-400">✓ {message}</p>}
+        {check && check.difference !== 0 && (
+          <BalanceNotice
+            check={check}
+            accountId={accountId}
+            onFixed={() => {
+              setCheck(null);
+              if (parsed && mapping) preview(parsed.rows, mapping);
+            }}
+          />
+        )}
         <div className="mt-3">
           <ErrorText>{error}</ErrorText>
         </div>
@@ -480,6 +502,43 @@ function OwnerNotice({ owner, onSwitch }: { owner: StatementOwner; onSwitch: (ac
           {t('import.switchAccount', { account: suggested.name })}
         </Button>
       )}
+    </div>
+  );
+}
+
+// The statement ends on a different balance than the app shows: usually a missing (or doubled)
+// opening balance. Moving the opening balance by the difference makes them agree.
+function BalanceNotice({ check, accountId, onFixed }: { check: BalanceCheck; accountId: string; onFixed: () => void }) {
+  const { t, locale } = useT();
+  const { accounts, reload } = useData();
+  const account = accounts.find((a) => a.id === accountId);
+  const [error, setError] = useState('');
+  if (!account) return null;
+  const opening = account.openingBalance + check.difference;
+
+  async function fix() {
+    try {
+      await api.put(`/accounts/${accountId}`, { openingBalance: opening });
+      await reload();
+      onFixed();
+    } catch (err) {
+      setError(err instanceof ApiError ? err.message : t('common.error'));
+    }
+  }
+
+  return (
+    <div className="mt-3 space-y-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-900 dark:bg-amber-900/30 dark:text-amber-200">
+      <p>
+        ⚠ {t('import.balanceOff', { date: formatDate(check.date, locale) })} <Money amount={check.statementBalance} currency={account.currency} className="font-semibold" />
+        {', '}
+        {t('import.balanceApp')} <Money amount={check.appBalance} currency={account.currency} className="font-semibold" />. {t('import.balanceHint')}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button type="button" variant="secondary" className="!min-h-8 !px-3 text-xs" onClick={fix}>
+          {t('import.balanceFix')} <Money amount={opening} currency={account.currency} />
+        </Button>
+        <ErrorText>{error}</ErrorText>
+      </div>
     </div>
   );
 }

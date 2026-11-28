@@ -18,9 +18,10 @@ import {
   mappingSchema,
   parseStatementFile,
   readLines,
+  closingBalance,
   StatementError,
 } from '../lib/statement.js';
-import { getAccount } from './accounts.js';
+import { balanceOn, getAccount } from './accounts.js';
 import { getCategory } from './categories.js';
 import { getCostCenter } from './costCenters.js';
 import { getMember } from './members.js';
@@ -172,7 +173,7 @@ export async function importRoutes(app: FastifyInstance) {
     const { accountId, rows, mapping } = previewInput.parse(req.body);
     const account = getAccount(vault.db, req.workspaceId, accountId);
     const lines = readLines(rows, mapping, decimalsFor(vault.db, account.currency));
-    if (lines.length === 0) return { lines: [], fromDate: null, toDate: null };
+    if (lines.length === 0) return { lines: [], fromDate: null, toDate: null, balanceCheck: null };
 
     const occurrences = new Map<string, number>();
     const keyed = lines.map((l) => {
@@ -277,7 +278,16 @@ export async function importRoutes(app: FastifyInstance) {
         ruleId: rule?.id ?? null,
       };
     });
-    return { lines: result, fromDate, toDate };
+    // Does the app agree with the statement's closing balance, counting the new lines? A gap here
+    // usually means the opening balance is missing or counted twice.
+    const closing = closingBalance(lines);
+    let balanceCheck = null;
+    if (closing) {
+      const pending = result.filter((l) => l.status === 'new' && l.date <= closing.date).reduce((sum, l) => sum + l.amount, 0);
+      const appBalance = balanceOn(vault.db, accountId, closing.date) + pending;
+      balanceCheck = { date: closing.date, statementBalance: closing.balance, appBalance, difference: closing.balance - appBalance };
+    }
+    return { lines: result, fromDate, toDate, balanceCheck };
   });
 
   app.post('/imports', { bodyLimit: BODY_LIMIT }, async (req, reply) => {

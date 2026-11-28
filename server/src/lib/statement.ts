@@ -188,6 +188,8 @@ export const mappingSchema = z.object({
   creditCol: z.number().int().min(0).nullable(),
   // Card statements list spending as positive numbers: invert so spending is money out.
   invert: z.boolean(),
+  // The running balance after each line, when the statement has one ("Bakiye").
+  balanceCol: z.number().int().min(0).nullable().default(null),
 });
 export type Mapping = z.infer<typeof mappingSchema>;
 
@@ -245,7 +247,8 @@ export function guessMapping(rows: Cell[][], invert: boolean): Mapping {
   }
   // Some banks (QNB) put part of the description in a channel column; read it too.
   const channelCol = findCol(headers, ['kanal', 'channel'], [dateCol, descCol]);
-  const used = [dateCol, descCol, ...(channelCol > -1 ? [channelCol] : [])];
+  const balanceCol = findCol(headers, ['bakiye', 'balance'], [dateCol, descCol]);
+  const used = [dateCol, descCol, ...(channelCol > -1 ? [channelCol] : []), ...(balanceCol > -1 ? [balanceCol] : [])];
   const debitCol = findCol(headers, HEADER_HINTS.debit, used);
   const creditCol = findCol(headers, HEADER_HINTS.credit, used);
   let amountCol = findCol(headers, HEADER_HINTS.amount, used);
@@ -261,6 +264,7 @@ export function guessMapping(rows: Cell[][], invert: boolean): Mapping {
     debitCol: split ? debitCol : null,
     creditCol: split ? creditCol : null,
     invert,
+    balanceCol: balanceCol > -1 ? balanceCol : null,
   };
 }
 
@@ -270,6 +274,8 @@ export interface StatementLine {
   description: string;
   // Signed, minor units: positive is money into the account, negative is money out.
   amount: number;
+  // The account balance after this line, as the statement prints it (minor units).
+  balance: number | null;
 }
 
 export function readLines(rows: Cell[][], m: Mapping, decimals: number): StatementLine[] {
@@ -293,9 +299,18 @@ export function readLines(rows: Cell[][], m: Mapping, decimals: number): Stateme
       .join(' ')
       .replace(/\s+/g, ' ')
       .trim();
-    lines.push({ row, date, description, amount });
+    const balance = m.balanceCol != null ? parseAmount(r[m.balanceCol] ?? null, decimals) : null;
+    lines.push({ row, date, description, amount, balance: balance != null && m.invert ? -balance : balance });
   });
   return lines;
+}
+
+// The balance the statement ends with: on the newest line, whichever end of the list that is.
+export function closingBalance(lines: StatementLine[]) {
+  if (lines.length === 0) return null;
+  const newestFirst = lines[0].date > lines.at(-1)!.date;
+  const last = newestFirst ? lines[0] : lines.at(-1)!;
+  return last.balance == null ? null : { date: last.date, balance: last.balance };
 }
 
 // Identifies a statement line across imports: same day, amount and description.

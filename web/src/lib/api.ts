@@ -104,6 +104,7 @@ export interface ImportMapping {
   debitCol: number | null;
   creditCol: number | null;
   invert: boolean;
+  balanceCol?: number | null;
 }
 
 export interface ImportLine {

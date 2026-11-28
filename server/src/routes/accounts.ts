@@ -69,6 +69,18 @@ function balances(db: Db, workspaceId: string) {
   return new Map(rows.map((r) => [r.id, r.balance]));
 }
 
+// One account's balance at the end of a day.
+export function balanceOn(db: Db, accountId: string, date: string) {
+  const row = db.get<{ balance: number }>(sql`
+    SELECT a.opening_balance
+      + COALESCE((SELECT SUM(CASE t.kind WHEN 'income' THEN t.amount ELSE -t.amount END)
+                  FROM transactions t WHERE t.account_id = a.id AND t.date <= ${date}), 0)
+      + COALESCE((SELECT SUM(t.to_amount) FROM transactions t
+                  WHERE t.to_account_id = a.id AND t.kind = 'transfer' AND t.date <= ${date}), 0) AS balance
+    FROM accounts a WHERE a.id = ${accountId}`);
+  return row?.balance ?? 0;
+}
+
 export function getAccount(db: Db, workspaceId: string, id: string) {
   const account = db
     .select()
