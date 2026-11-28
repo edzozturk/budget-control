@@ -115,7 +115,8 @@ export async function importRoutes(app: FastifyInstance) {
       rows = await parseStatementFile(req.body);
     } catch (err) {
       if (err instanceof StatementError) throw new HttpError(400, err.code);
-      throw new HttpError(400, 'unreadable_file');
+      req.log.error({ err }, 'Statement file could not be read');
+      throw new HttpError(400, 'unreadable_file', (err as Error).message);
     }
     if (rows.length > MAX_ROWS) throw new HttpError(400, 'too_many_rows');
     const saved = savedMapping(account.importMapping);
@@ -134,7 +135,8 @@ export async function importRoutes(app: FastifyInstance) {
       passbook = readPassbook(await readPdfItems(req.body));
     } catch (err) {
       if (err instanceof PdfError || err instanceof PassbookError) throw new HttpError(400, err.code);
-      throw new HttpError(400, 'unreadable_file');
+      req.log.error({ err }, 'Passbook could not be read');
+      throw new HttpError(400, 'unreadable_file', (err as Error).message);
     }
     const all = vault.db.select().from(accounts).where(eq(accounts.workspaceId, req.workspaceId)).all();
     const existing =

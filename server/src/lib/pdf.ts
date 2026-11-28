@@ -135,7 +135,7 @@ export async function readPdfItems(buf: Buffer): Promise<Item[][]> {
     doc = await getDocumentProxy(new Uint8Array(buf), { verbosity: 0 });
   } catch (err) {
     if ((err as { name?: string }).name === 'PasswordException') throw new PdfError('pdf_encrypted');
-    throw new PdfError('unreadable_file');
+    throw err;
   }
   const pages: Item[][] = [];
   for (let p = 1; p <= doc.numPages; p++) {

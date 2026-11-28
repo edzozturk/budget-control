@@ -282,7 +282,19 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 }
 
 export async function upload<T>(url: string, file: Blob): Promise<T> {
-  const res = await fetch(`/api${url}`, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/octet-stream' }, body: file });
+  // Read the file first: a file changed or moved after it was chosen fails here, not as a vague network error.
+  let body: ArrayBuffer;
+  try {
+    body = await file.arrayBuffer();
+  } catch {
+    throw new ApiError(0, 'file_changed');
+  }
+  let res: Response;
+  try {
+    res = await fetch(`/api${url}`, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/octet-stream' }, body });
+  } catch {
+    throw new ApiError(0, 'network');
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && data.error === 'locked') window.dispatchEvent(new Event(LOCKED_EVENT));

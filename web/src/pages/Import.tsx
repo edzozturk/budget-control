@@ -17,6 +17,8 @@ interface Parsed {
 
 type EditableLine = ImportLine & { include: boolean };
 
+const KNOWN_ERRORS = ['unsupported_format', 'empty_file', 'unreadable_file', 'too_many_rows', 'pdf_encrypted', 'pdf_no_text', 'file_changed', 'network', 'internal'];
+
 export function Import() {
   const { t } = useT();
   const { accounts, reload } = useData();
@@ -40,12 +42,13 @@ export function Import() {
     setError('');
   };
 
-  const explain = (err: unknown) =>
-    err instanceof ApiError && ['unsupported_format', 'empty_file', 'unreadable_file', 'too_many_rows', 'pdf_encrypted', 'pdf_no_text'].includes(err.code)
-      ? t(`import.error.${err.code}` as 'import.error.empty_file')
-      : err instanceof ApiError
-        ? err.message
-        : t('common.error');
+  const explain = (err: unknown) => {
+    if (!(err instanceof ApiError)) return `${t('common.error')} ${err instanceof Error ? `(${err.message})` : ''}`.trim();
+    if (!KNOWN_ERRORS.includes(err.code)) return err.message;
+    const text = t(`import.error.${err.code}` as 'import.error.empty_file');
+    // The technical reason, when the server gave one, helps Claude find the cause.
+    return err.message && err.message !== err.code && ['unreadable_file', 'internal'].includes(err.code) ? `${text} (${err.message})` : text;
+  };
 
   async function read(e: FormEvent) {
     e.preventDefault();

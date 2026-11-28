@@ -104,7 +104,7 @@ export function PassbookImport({ onClose }: { onClose: () => void }) {
         const code = err instanceof ApiError ? err.code : '';
         out.push({
           file: file.name,
-          error: ['passbook_unknown', 'pdf_encrypted', 'pdf_no_text'].includes(code) ? t(`import.error.${code}` as 'import.error.passbook_unknown') : t('common.error'),
+          error: ['passbook_unknown', 'pdf_encrypted', 'pdf_no_text', 'unreadable_file', 'file_changed', 'network', 'internal'].includes(code) ? t(`import.error.${code}` as 'import.error.passbook_unknown') : t('common.error'),
           name: '',
           memberId: '',
           useBalance: false,
