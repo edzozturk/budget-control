@@ -36,6 +36,13 @@
       "when": 1795802696781,
       "tag": "0004_account_details",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1795879010542,
+      "tag": "0005_bank_customers",
+      "breakpoints": true
     }
   ]
 }

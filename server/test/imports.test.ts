@@ -264,6 +264,38 @@ describe('importing statements', () => {
     expect(reopened.lines.map((l: { status: string }) => l.status)).toEqual(['new', 'new', 'new', 'new', 'matched']);
   });
 
+  it('checks the balance against the statement and finds the missing opening balance', async () => {
+    const bank = (await call('POST', '/api/accounts', { name: 'KMH', type: 'overdraft', currency: 'TRY' })).body;
+    // Newest first, as Garanti lists them: the balance before the oldest line was 5.048,09.
+    const csv = ['Tarih;Açıklama;Tutar;Bakiye', '27.11.2026;MAAŞ;+80.000,00;770,75', '13.11.2026;HAVALE;-57.000,00;-79.229,25', '12.11.2025;FAİZ;-27.277,34;-22.229,25'].join('\n');
+    const parsed = (await call('POST', `/api/imports/parse?accountId=${bank.id}`, Buffer.from(csv), 'application/octet-stream')).body;
+    expect(parsed.mapping).toMatchObject({ amountCol: 2, balanceCol: 3 });
+    const preview = (await call('POST', '/api/imports/preview', { accountId: bank.id, rows: parsed.rows, mapping: parsed.mapping })).body;
+    expect(preview.balanceCheck).toEqual({ date: '2026-11-27', statementBalance: 77075, appBalance: -427734, difference: 504809 });
+
+    await call('POST', '/api/imports', { accountId: bank.id, fileName: 'kmh.csv', mapping: parsed.mapping, lines: preview.lines.map((l: object) => ({ ...l, include: true })) });
+    await call('PUT', `/api/accounts/${bank.id}`, { openingBalance: 504809 });
+    const again = (await call('POST', '/api/imports/preview', { accountId: bank.id, rows: parsed.rows, mapping: parsed.mapping })).body;
+    expect(again.balanceCheck.difference).toBe(0);
+    expect((await call('GET', '/api/accounts')).body.find((a: { id: string }) => a.id === bank.id).balance).toBe(77075);
+  });
+
+  it('checks the balance for accounts whose mapping was saved before balances were read', async () => {
+    const bank = (await call('POST', '/api/accounts', { name: 'KMH', type: 'overdraft', currency: 'TRY' })).body;
+    const csv = ['Tarih;Açıklama;Tutar;Bakiye', '27.11.2026;MAAŞ;+1.000,00;1.770,75', '12.11.2025;FAİZ;-4.277,34;770,75'].join('\n');
+    const first = (await call('POST', `/api/imports/parse?accountId=${bank.id}`, Buffer.from(csv), 'application/octet-stream')).body;
+    const oldMapping = { ...first.mapping, balanceCol: null };
+    const preview = (await call('POST', '/api/imports/preview', { accountId: bank.id, rows: first.rows, mapping: oldMapping })).body;
+    await call('POST', '/api/imports', { accountId: bank.id, fileName: 'kmh.csv', mapping: oldMapping, lines: preview.lines.map((l: object) => ({ ...l, include: true })) });
+
+    // The same file again, now that every line is already in the app.
+    const parsed = (await call('POST', `/api/imports/parse?accountId=${bank.id}`, Buffer.from(csv), 'application/octet-stream')).body;
+    expect(parsed).toMatchObject({ savedMapping: true, mapping: { balanceCol: 3 } });
+    const again = (await call('POST', '/api/imports/preview', { accountId: bank.id, rows: parsed.rows, mapping: parsed.mapping })).body;
+    expect(again.lines.every((l: { status: string }) => l.status === 'duplicate')).toBe(true);
+    expect(again.balanceCheck).toMatchObject({ statementBalance: 177075, appBalance: -327734, difference: 504809 });
+  });
+
   it('rejects broken PDFs and applies rules to existing transactions', async () => {
     const bank = (await call('POST', '/api/accounts', { name: 'Banka', type: 'bank', currency: 'TRY' })).body;
     const pdf = await call('POST', `/api/imports/parse?accountId=${bank.id}`, Buffer.from('%PDF-1.4'), 'application/octet-stream');

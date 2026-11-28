@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 import { detectStatementOwner, ibanBankCode, validIban } from '../src/lib/banks.js';
+import { buildPdf } from './pdfFixture.js';
 
 // A valid Turkish IBAN for a bank code and a made-up account number (synthetic, never a real one).
 function makeIban(bankCode: string, account: string) {
@@ -75,7 +76,6 @@ describe('account details', () => {
       branchName: ' Mecidiyeköy ',
       branchCode: '123',
       accountNumber: '987654',
-      customerNumber: '',
       ownerMemberId: member.id,
       joint: true,
       creditLimit: 10000000,
@@ -84,7 +84,7 @@ describe('account details', () => {
       openedOn: '2020-05-01',
     });
     expect(res.status).toBe(201);
-    expect(res.body).toMatchObject({ iban, bankCode: '00111', branchName: 'Mecidiyeköy', customerNumber: null, ownerMemberId: member.id, joint: true, interestDay: 28 });
+    expect(res.body).toMatchObject({ iban, bankCode: '00111', branchName: 'Mecidiyeköy', ownerMemberId: member.id, joint: true, interestDay: 28 });
 
     expect((await call('POST', '/api/accounts', { name: 'X', type: 'bank', currency: 'TRY', iban: 'TR00 0000 0000 0000 0000 0000 00' })).status).toBe(400);
     expect((await call('POST', '/api/accounts', { name: 'X', type: 'bank', currency: 'TRY', ownerMemberId: '00000000-0000-4000-8000-000000000000' })).status).toBe(404);
@@ -121,4 +121,77 @@ describe('account details', () => {
     const unknown = (await call('POST', `/api/imports/parse?accountId=${garanti.id}`, file(makeIban('00111', '5')), 'application/octet-stream')).body;
     expect(unknown.owner).toMatchObject({ bankCode: '00111', suggestedAccountId: qnb.id, otherBank: true });
   });
+
+  it('keeps customer numbers per bank and holder', async () => {
+    const member = (await call('POST', '/api/members', { name: 'Nadide' })).body;
+    await call('PUT', '/api/bank-customers', { bankCode: '00062', customerNumber: '111' });
+    await call('PUT', '/api/bank-customers', { bankCode: '00062', memberId: member.id, customerNumber: '222' });
+    await call('PUT', '/api/bank-customers', { bankCode: '00062', customerNumber: '333' });
+    const list = (await call('GET', '/api/bank-customers')).body as { memberId: string | null; customerNumber: string }[];
+    expect(list.map((c) => [c.memberId, c.customerNumber])).toEqual(
+      expect.arrayContaining([
+        [member.id, '222'],
+        [null, '333'],
+      ]),
+    );
+    expect(list).toHaveLength(2);
+    expect((await call('PUT', '/api/bank-customers', { bankCode: '00062', customerNumber: '' })).status).toBe(204);
+    expect((await call('GET', '/api/bank-customers')).body).toHaveLength(1);
+    // Removing the member removes their customer number.
+    await call('DELETE', `/api/members/${member.id}`);
+    expect((await call('GET', '/api/bank-customers')).body).toHaveLength(0);
+  });
+
+  it('reads an account passbook PDF and finds the account and holder', { timeout: 30000 }, async () => {
+    // Laid out like Garanti's "Vadesiz Hesap Cüzdanı" (synthetic values, ASCII for the test font).
+    const passbook = buildPdf([
+      [
+        [220, 780, 'VADESIZ HESAP CUZDANI'],
+        [40, 750, '1.Musteri Bilgileri'],
+        [40, 730, 'Adi Soyadi/ Unvani: ORNEK KISI'],
+        [40, 700, 'Hesabin Acilis Tarihi:'],
+        [300, 700, 'Acildigi Sube Adi ve Kodu:'],
+        [40, 686, '15/03/2019'],
+        [300, 686, 'ORNEKKOY 462'],
+        [40, 664, 'Hesap ve Cuzdan Numarasi:'],
+        [300, 664, 'Hesabin Turu:'],
+        [40, 650, '1234567 W 000001'],
+        [40, 628, 'Vadesi ve Faiz Orani (Vadeli Hesap ise):'],
+        [300, 628, 'Bankacilik Hizmetleri Sozlesmesi Tarihi:'],
+        [300, 614, '01/02/2019'],
+        [40, 592, 'Guncel Kullanilabilir Bakiye:'],
+        [300, 592, 'Guncel Kullanilabilir Bakiye Tarihi:'],
+        [40, 578, '12.345,67 TL'],
+        [300, 578, '27/11/2026'],
+        [40, 80, 'T. Garanti Bankasi A.S., Mersis Numarasi: 0000'],
+      ],
+    ]);
+    const member = (await call('POST', '/api/members', { name: 'Örnek' })).body;
+    const read = (await call('POST', '/api/imports/passbook', passbook, 'application/octet-stream')).body;
+    expect(read).toMatchObject({
+      existingAccountId: null,
+      memberId: member.id,
+      passbook: {
+        bankCode: '00062',
+        type: 'bank',
+        holderName: 'ORNEK KISI',
+        openedOn: '2019-03-15',
+        branchName: 'ORNEKKOY',
+        branchCode: '462',
+        accountNumber: '1234567',
+        iban: makeIban('00062', '00462' + '00001234567'),
+        currency: 'TRY',
+        balance: 1234567,
+        balanceDate: '2026-11-27',
+        termEnd: null,
+      },
+    });
+
+    const account = (await call('POST', '/api/accounts', { name: 'Garanti', type: 'bank', currency: 'TRY', bankCode: '00062', accountNumber: '1234567' })).body;
+    expect((await call('POST', '/api/imports/passbook', passbook, 'application/octet-stream')).body.existingAccountId).toBe(account.id);
+
+    const other = buildPdf([[[40, 700, 'Hesap Hareketleri'], [40, 680, 'Tarih Tutar']]]);
+    expect((await call('POST', '/api/imports/passbook', other, 'application/octet-stream')).body.error).toBe('passbook_unknown');
+  });
 });
+

@@ -67,7 +67,7 @@ export const accounts = sqliteTable(
     last4: text('last4'),
     // Column mapping remembered from the last statement import (JSON).
     importMapping: text('import_mapping'),
-    // The bank's side: 5-digit bank (EFT) code, branch, account number, IBAN, customer number.
+    // The bank's side: 5-digit bank (EFT) code, branch, account number, IBAN.
     // Kept only in the encrypted database. Passwords, CVVs and full card numbers are never stored.
     bankCode: text('bank_code'),
     branchName: text('branch_name'),
@@ -75,7 +75,6 @@ export const accounts = sqliteTable(
     accountNumber: text('account_number'),
     accountSuffix: text('account_suffix'),
     iban: text('iban'),
-    customerNumber: text('customer_number'),
     // Who the account belongs to; joint accounts are shared with others.
     ownerMemberId: text('owner_member_id').references(() => members.id, { onDelete: 'set null' }),
     joint: integer('joint', { mode: 'boolean' }).notNull().default(false),
@@ -300,4 +299,20 @@ export const categoryRules = sqliteTable(
     ...timestamps,
   },
   (t) => [index('category_rules_workspace_idx').on(t.workspaceId)],
+);
+
+// A customer number belongs to a person at a bank, not to an account: one row per bank and holder.
+export const bankCustomers = sqliteTable(
+  'bank_customers',
+  {
+    id: text('id').primaryKey(),
+    workspaceId: text('workspace_id')
+      .notNull()
+      .references(() => workspaces.id),
+    bankCode: text('bank_code').notNull(),
+    memberId: text('member_id').references(() => members.id, { onDelete: 'cascade' }),
+    customerNumber: text('customer_number').notNull(),
+    ...timestamps,
+  },
+  (t) => [index('bank_customers_workspace_idx').on(t.workspaceId)],
 );

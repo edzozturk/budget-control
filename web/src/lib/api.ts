@@ -46,7 +46,6 @@ export interface Account {
   accountNumber: string | null;
   accountSuffix: string | null;
   iban: string | null;
-  customerNumber: string | null;
   ownerMemberId: string | null;
   joint: boolean;
   openedOn: string | null;
@@ -61,6 +60,31 @@ export interface Account {
 export interface Bank {
   code: string;
   name: string;
+}
+
+export interface BankCustomer {
+  id: string;
+  bankCode: string;
+  memberId: string | null;
+  customerNumber: string;
+}
+
+export interface Passbook {
+  bankCode: string;
+  bankName: string;
+  title: string;
+  type: AccountType;
+  holderName: string | null;
+  openedOn: string | null;
+  branchName: string | null;
+  branchCode: string | null;
+  accountNumber: string | null;
+  iban: string | null;
+  currency: string;
+  balance: number | null;
+  balanceDate: string | null;
+  termEnd: string | null;
+  interestRate: number | null;
 }
 
 export interface StatementOwner {
@@ -80,6 +104,7 @@ export interface ImportMapping {
   debitCol: number | null;
   creditCol: number | null;
   invert: boolean;
+  balanceCol?: number | null;
 }
 
 export interface ImportLine {
@@ -258,7 +283,19 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 }
 
 export async function upload<T>(url: string, file: Blob): Promise<T> {
-  const res = await fetch(`/api${url}`, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/octet-stream' }, body: file });
+  // Read the file first: a file changed or moved after it was chosen fails here, not as a vague network error.
+  let body: ArrayBuffer;
+  try {
+    body = await file.arrayBuffer();
+  } catch {
+    throw new ApiError(0, 'file_changed');
+  }
+  let res: Response;
+  try {
+    res = await fetch(`/api${url}`, { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/octet-stream' }, body });
+  } catch {
+    throw new ApiError(0, 'network');
+  }
   const data = await res.json().catch(() => ({}));
   if (!res.ok) {
     if (res.status === 401 && data.error === 'locked') window.dispatchEvent(new Event(LOCKED_EVENT));

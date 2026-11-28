@@ -3,8 +3,10 @@ import { and, desc, eq, gte, inArray, isNotNull, lte, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
-import { accounts, categories, categoryRules, currencies, importLines, imports, transactions } from '../db/schema.js';
+import { accounts, categories, categoryRules, currencies, importLines, imports, members, transactions } from '../db/schema.js';
 import { bankByCode, detectStatementOwner } from '../lib/banks.js';
+import { PassbookError, readPassbook } from '../lib/passbooks.js';
+import { PdfError, readPdfItems } from '../lib/pdf.js';
 import { addDays } from '../lib/dates.js';
 import { HttpError, idParam, isoDate, notFound, parsePatch } from '../lib/http.js';
 import {
@@ -16,9 +18,10 @@ import {
   mappingSchema,
   parseStatementFile,
   readLines,
+  closingBalance,
   StatementError,
 } from '../lib/statement.js';
-import { getAccount } from './accounts.js';
+import { balanceOn, getAccount } from './accounts.js';
 import { getCategory } from './categories.js';
 import { getCostCenter } from './costCenters.js';
 import { getMember } from './members.js';
@@ -113,13 +116,45 @@ export async function importRoutes(app: FastifyInstance) {
       rows = await parseStatementFile(req.body);
     } catch (err) {
       if (err instanceof StatementError) throw new HttpError(400, err.code);
-      throw new HttpError(400, 'unreadable_file');
+      req.log.error({ err }, 'Statement file could not be read');
+      throw new HttpError(400, 'unreadable_file', (err as Error).message);
     }
     if (rows.length > MAX_ROWS) throw new HttpError(400, 'too_many_rows');
     const saved = savedMapping(account.importMapping);
     const decimals = decimalsFor(vault.db, account.currency);
-    const mapping = saved && readLines(rows, saved, decimals).length > 0 ? saved : guessMapping(rows, account.type === 'credit_card');
-    return { rows, mapping, savedMapping: mapping === saved, owner: ownerOf(req.workspaceId, account, rows, mapping.headerRow) };
+    const guess = guessMapping(rows, account.type === 'credit_card');
+    let mapping = saved && readLines(rows, saved, decimals).length > 0 ? saved : guess;
+    // Mappings saved before the balance column was read lack it; take it from the guess when the
+    // header is in the same place, so the balance check works for them too.
+    if (mapping === saved && saved.balanceCol == null && guess.balanceCol != null && guess.headerRow === saved.headerRow) {
+      mapping = { ...saved, balanceCol: guess.balanceCol };
+    }
+    return { rows, mapping, savedMapping: saved != null && mapping !== guess, owner: ownerOf(req.workspaceId, account, rows, mapping.headerRow) };
+  });
+
+  // Reads an account passbook (hesap cüzdanı) PDF into account details, says whether the account
+  // already exists and which member holds it. The client creates or updates the account.
+  app.post('/imports/passbook', { bodyLimit: BODY_LIMIT }, async (req) => {
+    if (!Buffer.isBuffer(req.body)) throw new HttpError(400, 'file_required');
+    if (!req.body.subarray(0, 1024).includes('%PDF-')) throw new HttpError(400, 'passbook_unknown');
+    let passbook;
+    try {
+      passbook = readPassbook(await readPdfItems(req.body));
+    } catch (err) {
+      if (err instanceof PdfError || err instanceof PassbookError) throw new HttpError(400, err.code);
+      req.log.error({ err }, 'Passbook could not be read');
+      throw new HttpError(400, 'unreadable_file', (err as Error).message);
+    }
+    const all = vault.db.select().from(accounts).where(eq(accounts.workspaceId, req.workspaceId)).all();
+    const existing =
+      all.find((a) => passbook.iban && a.iban === passbook.iban) ??
+      all.find((a) => passbook.accountNumber && a.bankCode === passbook.bankCode && a.accountNumber === passbook.accountNumber) ??
+      null;
+    const holder = foldText(passbook.holderName ?? '');
+    const people = vault.db.select().from(members).where(eq(members.workspaceId, req.workspaceId)).all();
+    const member =
+      people.find((m) => foldText(m.name) === holder) ?? people.find((m) => holder.split(' ')[0] !== '' && foldText(m.name).split(' ')[0] === holder.split(' ')[0]) ?? null;
+    return { passbook, existingAccountId: existing?.id ?? null, memberId: member?.id ?? null };
   });
 
   // Which account the file seems to belong to, from an IBAN or the bank's name above the table.
@@ -144,7 +179,7 @@ export async function importRoutes(app: FastifyInstance) {
     const { accountId, rows, mapping } = previewInput.parse(req.body);
     const account = getAccount(vault.db, req.workspaceId, accountId);
     const lines = readLines(rows, mapping, decimalsFor(vault.db, account.currency));
-    if (lines.length === 0) return { lines: [], fromDate: null, toDate: null };
+    if (lines.length === 0) return { lines: [], fromDate: null, toDate: null, balanceCheck: null };
 
     const occurrences = new Map<string, number>();
     const keyed = lines.map((l) => {
@@ -249,7 +284,16 @@ export async function importRoutes(app: FastifyInstance) {
         ruleId: rule?.id ?? null,
       };
     });
-    return { lines: result, fromDate, toDate };
+    // Does the app agree with the statement's closing balance, counting the new lines? A gap here
+    // usually means the opening balance is missing or counted twice.
+    const closing = closingBalance(lines);
+    let balanceCheck = null;
+    if (closing) {
+      const pending = result.filter((l) => l.status === 'new' && l.date <= closing.date).reduce((sum, l) => sum + l.amount, 0);
+      const appBalance = balanceOn(vault.db, accountId, closing.date) + pending;
+      balanceCheck = { date: closing.date, statementBalance: closing.balance, appBalance, difference: closing.balance - appBalance };
+    }
+    return { lines: result, fromDate, toDate, balanceCheck };
   });
 
   app.post('/imports', { bodyLimit: BODY_LIMIT }, async (req, reply) => {
