@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, or, sql } from 'drizzle-orm';
+import { and, eq, isNull, or, sql } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
-import { ACCOUNT_TYPES, accounts, currencies, importLines, imports, transactions } from '../db/schema.js';
+import { ACCOUNT_TYPES, accounts, bankCustomers, currencies, importLines, imports, transactions } from '../db/schema.js';
 import { BANKS, ibanBankCode, normalizeIban, validIban } from '../lib/banks.js';
 import { currencyCode, HttpError, idParam, isoDate, minorAmount, notFound, parsePatch } from '../lib/http.js';
 import { getMember } from './members.js';
@@ -36,7 +36,6 @@ const accountInput = z.object({
     .refine((v) => v === '' || validIban(v), 'Invalid IBAN')
     .transform((v) => v || null)
     .nullish(),
-  customerNumber: optionalText(40),
   ownerMemberId: z.string().uuid().nullish(),
   joint: z.boolean().optional(),
   openedOn: isoDate.nullish(),
@@ -102,6 +101,44 @@ export async function accountRoutes(app: FastifyInstance) {
   };
 
   app.get('/banks', async () => BANKS.map(({ code, name }) => ({ code, name })));
+
+  // Customer numbers: one per bank and holder (no holder = the household's own).
+  app.get('/bank-customers', async (req) => vault.db.select().from(bankCustomers).where(eq(bankCustomers.workspaceId, req.workspaceId)).all());
+
+  app.put('/bank-customers', async (req, reply) => {
+    const body = z
+      .object({
+        bankCode: z.string().regex(/^\d{5}$/),
+        memberId: z.string().uuid().nullable().default(null),
+        customerNumber: z.string().trim().max(40),
+      })
+      .parse(req.body);
+    if (body.memberId) getMember(vault.db, req.workspaceId, body.memberId);
+    const where = and(
+      eq(bankCustomers.workspaceId, req.workspaceId),
+      eq(bankCustomers.bankCode, body.bankCode),
+      body.memberId ? eq(bankCustomers.memberId, body.memberId) : isNull(bankCustomers.memberId),
+    );
+    const current = vault.db.select().from(bankCustomers).where(where).get();
+    if (!body.customerNumber) {
+      if (current) vault.db.delete(bankCustomers).where(eq(bankCustomers.id, current.id)).run();
+      reply.code(204);
+      return;
+    }
+    if (current) {
+      return vault.db
+        .update(bankCustomers)
+        .set({ customerNumber: body.customerNumber, updatedAt: new Date().toISOString() })
+        .where(eq(bankCustomers.id, current.id))
+        .returning()
+        .get();
+    }
+    return vault.db
+      .insert(bankCustomers)
+      .values({ id: randomUUID(), workspaceId: req.workspaceId, ...body })
+      .returning()
+      .get();
+  });
 
   app.get('/accounts', async (req) => {
     const bal = balances(vault.db, req.workspaceId);

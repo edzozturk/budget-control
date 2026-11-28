@@ -123,6 +123,11 @@ export function linesToRows(pages: Item[][]): Cell[][] {
 }
 
 export async function parsePdf(buf: Buffer): Promise<Cell[][]> {
+  return linesToRows(await readPdfItems(buf));
+}
+
+// The text of each page with its position (PDF units, y grows upwards).
+export async function readPdfItems(buf: Buffer): Promise<Item[][]> {
   // unpdf ships a self-contained pdf.js build: no native modules, so nothing for Windows to lock.
   const { getDocumentProxy } = await import('unpdf');
   let doc;
@@ -144,7 +149,7 @@ export async function parsePdf(buf: Buffer): Promise<Cell[][]> {
     pages.push(items);
   }
   if (pages.every((p) => p.length === 0)) throw new PdfError('pdf_no_text');
-  return linesToRows(pages);
+  return pages;
 }
 
 export type { Item as PdfTextItem };

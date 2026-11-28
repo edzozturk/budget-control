@@ -3,8 +3,10 @@ import { and, desc, eq, gte, inArray, isNotNull, lte, or } from 'drizzle-orm';
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import type { Db } from '../db/index.js';
-import { accounts, categories, categoryRules, currencies, importLines, imports, transactions } from '../db/schema.js';
+import { accounts, categories, categoryRules, currencies, importLines, imports, members, transactions } from '../db/schema.js';
 import { bankByCode, detectStatementOwner } from '../lib/banks.js';
+import { PassbookError, readPassbook } from '../lib/passbooks.js';
+import { PdfError, readPdfItems } from '../lib/pdf.js';
 import { addDays } from '../lib/dates.js';
 import { HttpError, idParam, isoDate, notFound, parsePatch } from '../lib/http.js';
 import {
@@ -120,6 +122,30 @@ export async function importRoutes(app: FastifyInstance) {
     const decimals = decimalsFor(vault.db, account.currency);
     const mapping = saved && readLines(rows, saved, decimals).length > 0 ? saved : guessMapping(rows, account.type === 'credit_card');
     return { rows, mapping, savedMapping: mapping === saved, owner: ownerOf(req.workspaceId, account, rows, mapping.headerRow) };
+  });
+
+  // Reads an account passbook (hesap cüzdanı) PDF into account details, says whether the account
+  // already exists and which member holds it. The client creates or updates the account.
+  app.post('/imports/passbook', { bodyLimit: BODY_LIMIT }, async (req) => {
+    if (!Buffer.isBuffer(req.body)) throw new HttpError(400, 'file_required');
+    if (!req.body.subarray(0, 1024).includes('%PDF-')) throw new HttpError(400, 'passbook_unknown');
+    let passbook;
+    try {
+      passbook = readPassbook(await readPdfItems(req.body));
+    } catch (err) {
+      if (err instanceof PdfError || err instanceof PassbookError) throw new HttpError(400, err.code);
+      throw new HttpError(400, 'unreadable_file');
+    }
+    const all = vault.db.select().from(accounts).where(eq(accounts.workspaceId, req.workspaceId)).all();
+    const existing =
+      all.find((a) => passbook.iban && a.iban === passbook.iban) ??
+      all.find((a) => passbook.accountNumber && a.bankCode === passbook.bankCode && a.accountNumber === passbook.accountNumber) ??
+      null;
+    const holder = foldText(passbook.holderName ?? '');
+    const people = vault.db.select().from(members).where(eq(members.workspaceId, req.workspaceId)).all();
+    const member =
+      people.find((m) => foldText(m.name) === holder) ?? people.find((m) => holder.split(' ')[0] !== '' && foldText(m.name).split(' ')[0] === holder.split(' ')[0]) ?? null;
+    return { passbook, existingAccountId: existing?.id ?? null, memberId: member?.id ?? null };
   });
 
   // Which account the file seems to belong to, from an IBAN or the bank's name above the table.

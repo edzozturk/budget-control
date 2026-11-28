@@ -46,7 +46,6 @@ export interface Account {
   accountNumber: string | null;
   accountSuffix: string | null;
   iban: string | null;
-  customerNumber: string | null;
   ownerMemberId: string | null;
   joint: boolean;
   openedOn: string | null;
@@ -61,6 +60,31 @@ export interface Account {
 export interface Bank {
   code: string;
   name: string;
+}
+
+export interface BankCustomer {
+  id: string;
+  bankCode: string;
+  memberId: string | null;
+  customerNumber: string;
+}
+
+export interface Passbook {
+  bankCode: string;
+  bankName: string;
+  title: string;
+  type: AccountType;
+  holderName: string | null;
+  openedOn: string | null;
+  branchName: string | null;
+  branchCode: string | null;
+  accountNumber: string | null;
+  iban: string | null;
+  currency: string;
+  balance: number | null;
+  balanceDate: string | null;
+  termEnd: string | null;
+  interestRate: number | null;
 }
 
 export interface StatementOwner {

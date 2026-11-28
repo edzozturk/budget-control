@@ -1,11 +1,12 @@
 import { useState, type FormEvent, type ReactNode } from 'react';
 import { Money } from '../components/Money';
 import { Button, Card, cx, Empty, ErrorText, Field, Input, Modal, PageHeader, Select } from '../components/ui';
-import { api, ApiError, type Account, type AccountType, type Bank } from '../lib/api';
+import { api, ApiError, type Account, type AccountType, type Bank, type BankCustomer } from '../lib/api';
 import { useData, useResource } from '../lib/data';
 import { formatIban, ibanBankCode, maskTail, validIban } from '../lib/iban';
 import { useT } from '../lib/i18n';
 import { decimalsOf, toInput, toMinor } from '../lib/money';
+import { CustomerNumbers, PassbookImport } from './AccountTools';
 
 const TYPES: AccountType[] = ['bank', 'overdraft', 'term_deposit', 'fx', 'gold', 'investment', 'savings', 'credit_card', 'cash', 'other'];
 const BANK_TYPES: AccountType[] = ['bank', 'overdraft', 'term_deposit', 'fx', 'gold', 'investment', 'savings', 'credit_card'];
@@ -14,8 +15,11 @@ export function Accounts() {
   const { t } = useT();
   const { accounts, members } = useData();
   const banks = useResource<Bank[]>('/banks').data ?? [];
+  const customers = useResource<BankCustomer[]>('/bank-customers');
   const [editing, setEditing] = useState<Account | 'new' | null>(null);
   const [showClosed, setShowClosed] = useState(false);
+  const [passbooks, setPassbooks] = useState(false);
+  const [customerBank, setCustomerBank] = useState<Bank | null>(null);
 
   const closedCount = accounts.filter((a) => a.archived).length;
   const visible = accounts.filter((a) => showClosed || !a.archived);
@@ -23,18 +27,46 @@ export function Accounts() {
   const groups = new Map<string, Account[]>();
   for (const a of visible) groups.set(a.bankCode ?? '', [...(groups.get(a.bankCode ?? '') ?? []), a]);
   const bankName = (code: string) => (code ? (banks.find((b) => b.code === code)?.name ?? code) : t('account.noBank'));
+  // "Müşteri no •••• 1234 · Nadide •••• 5678": the household's own first, then per holder.
+  const customerLine = (code: string) => {
+    const parts = (customers.data ?? [])
+      .filter((c) => c.bankCode === code)
+      .sort((a, b) => Number(a.memberId !== null) - Number(b.memberId !== null))
+      .map((c) => `${c.memberId ? `${members.find((m) => m.id === c.memberId)?.name ?? '?'} ` : ''}${maskTail(c.customerNumber)}`);
+    return parts.length ? `${t('account.customerNumber')} ${parts.join(' · ')}` : '';
+  };
   const order = [...groups.keys()].sort((a, b) => Number(a === '') - Number(b === '') || bankName(a).localeCompare(bankName(b), 'tr'));
 
   return (
     <div className="space-y-4">
-      <PageHeader title={t('nav.accounts')} action={<Button onClick={() => setEditing('new')}>+ {t('account.add')}</Button>} />
+      <PageHeader
+        title={t('nav.accounts')}
+        action={
+          <div className="flex flex-wrap justify-end gap-2">
+            <Button variant="secondary" onClick={() => setPassbooks(true)}>
+              {t('passbook.button')}
+            </Button>
+            <Button onClick={() => setEditing('new')}>+ {t('account.add')}</Button>
+          </div>
+        }
+      />
       {accounts.length === 0 ? (
         <Card>
           <Empty>{t('dashboard.noAccounts')}</Empty>
         </Card>
       ) : (
         order.map((code) => (
-          <Card key={code || '-'} title={order.length > 1 || code ? bankName(code) : undefined}>
+          <Card
+            key={code || '-'}
+            title={order.length > 1 || code ? bankName(code) : undefined}
+            action={
+              code ? (
+                <button className="text-xs text-teal-700 underline dark:text-teal-300" onClick={() => setCustomerBank({ code, name: bankName(code) })}>
+                  {customerLine(code) || t('account.customerNumber')}
+                </button>
+              ) : undefined
+            }
+          >
             <ul className="divide-y divide-slate-100 dark:divide-slate-800">
               {groups.get(code)!.map((a) => (
                 <li key={a.id}>
@@ -71,6 +103,17 @@ export function Accounts() {
         </button>
       )}
       {editing && <AccountForm initial={editing === 'new' ? undefined : editing} banks={banks} onClose={() => setEditing(null)} />}
+      {passbooks && <PassbookImport onClose={() => setPassbooks(false)} />}
+      {customerBank && (
+        <CustomerNumbers
+          bank={customerBank}
+          customers={customers.data ?? []}
+          onClose={() => {
+            setCustomerBank(null);
+            customers.refresh();
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -95,7 +138,6 @@ function AccountForm({ initial, banks, onClose }: { initial?: Account; banks: Ba
   const [branchCode, setBranchCode] = useState(initial?.branchCode ?? '');
   const [accountNumber, setAccountNumber] = useState(initial?.accountNumber ?? '');
   const [accountSuffix, setAccountSuffix] = useState(initial?.accountSuffix ?? '');
-  const [customerNumber, setCustomerNumber] = useState(initial?.customerNumber ?? '');
   const [ownerMemberId, setOwnerMemberId] = useState(initial?.ownerMemberId ?? '');
   const [joint, setJoint] = useState(initial?.joint ?? false);
   const [openedOn, setOpenedOn] = useState(initial?.openedOn ?? '');
@@ -145,7 +187,6 @@ function AccountForm({ initial, banks, onClose }: { initial?: Account; banks: Ba
       branchCode: atBank ? branchCode : null,
       accountNumber: atBank && !isCard ? accountNumber : null,
       accountSuffix: atBank && !isCard ? accountSuffix : null,
-      customerNumber: atBank ? customerNumber : null,
       ownerMemberId: ownerMemberId || null,
       joint,
       openedOn: openedOn || null,
@@ -317,9 +358,6 @@ function AccountForm({ initial, banks, onClose }: { initial?: Account; banks: Ba
                   </Field>
                 </>
               )}
-              <Field label={t('account.customerNumber')}>
-                <Input inputMode="numeric" value={customerNumber} onChange={(e) => setCustomerNumber(e.target.value)} maxLength={40} autoComplete="off" />
-              </Field>
             </div>
           </Section>
         )}
